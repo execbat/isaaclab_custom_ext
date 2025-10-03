@@ -1,12 +1,61 @@
-"""
-isaac_hydra_ext: локальное расширение Hydra для Isaac-Lab / Isaac-Sim.
-Здесь можно хранить свои конфиги (conf/*) и код (награды, термы и пр.).
-"""
+# Copyright (c) 2022-2025, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
 
-#from .source.isaaclab_tasks.manager_based.locomotion import velocity  
+import gymnasium as gym
+
+from . import agents
+
+##
+# Register Gym environments.
+##
+
+gym.register(
+    id="Ext-Isaac-Velocity-Rough-G1-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.rough_env_cfg:G1RoughEnvCfg",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
+    },
+)
 
 
+gym.register(
+    id="Ext-Isaac-Velocity-Rough-G1-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.rough_env_cfg:G1RoughEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
+    },
+)
 
-__all__ = []
+
+gym.register(
+    id="Ext-Isaac-Velocity-Flat-G1-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.flat_env_cfg:G1FlatEnvCfg",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1FlatPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_flat_ppo_cfg.yaml",
+    },
+)
+
+
+gym.register(
+    id="Ext-Isaac-Velocity-Flat-G1-Play-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.flat_env_cfg:G1FlatEnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1FlatPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_flat_ppo_cfg.yaml",
+    },
+)
 
 
