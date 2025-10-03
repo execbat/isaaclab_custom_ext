@@ -1,0 +1,93 @@
+# -----------------------------
+# Python cache / artifacts
+# -----------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.pytype/
+
+# Logs / dumps
+logs/
+log/
+*.log
+nohup.out
+*.dmp
+*.crash
+core
+core.*
+
+# Temp / local state
+.tmp/
+tmp/
+.cache/
+*.swp
+*.swo
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# ML training artifacts
+# -----------------------------
+# Hydra default output dirs
+outputs/
+multirun/
+
+# Common experiment dirs
+runs/
+checkpoints/
+artifacts/
+wandb/
+mlruns/
+tensorboard/
+tb_logs/
+lightning_logs/
+
+# Keep Hydra configs (do NOT ignore these even if patterns above match)
+!isaac_hydra_ext/conf/**
+!isaac_hydra_ext/conf/**/*.yaml
+
+# -----------------------------
+# Scripts byproducts
+# -----------------------------
+scripts/*.log
+scripts/*.tmp
+
+# -----------------------------
+# Isaac / Omniverse optional caches (if you ever place them here)
+# (Usually outside repo; add only if such dirs appear locally)
+# -----------------------------
+# .nvidia-omniverse/
+# .local/share/ov/
+# .cache/ov/
+# .cache/nvidia/GLCache/
+# .nv/ComputeCache/

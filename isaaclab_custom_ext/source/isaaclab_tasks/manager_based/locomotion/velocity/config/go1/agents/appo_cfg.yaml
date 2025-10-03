@@ -1,0 +1,132 @@
+env_name: Isaac-Velocity-Sber-Unitree-Go1-v0
+experiment_name: go1_appo
+
+seed: 42
+algo: appo
+device: cuda:0
+resume: false           # for CLI override
+max_iterations: 10000000000  # 
+
+
+
+# --- parameters APPO ---
+appo_params:
+  num_workers: 1      # 4       # W
+  envs_per_worker: 64 # 64 # B
+  gamma: 0.99
+  lam: 0.95
+
+  clip_eps_start: 0.15 # 0.3
+  clip_eps_max: 0.3   # 0.3
+  clip_eps_min: 0.05  # 0.05 
+
+  lr: 0.0005
+  entropy_coef: 0.003  #0.003
+  update_epochs: 5    # 10    number of updates of the main Policy using data of a single collected buffer of samples. In the main Process
+  batch_size: 512      # 512    batch size of a single update for main Policy. In the main Process
+  steps_per_env: 64    # 24    # T - number of samples collected from a single env before he update
+  kl_treshold: 0.009   # 0.009  
+ 
+# Buffer size for every update is: W * B * T = 4 * 128 * 24 = 12288
+# Maximal number of unique data taken from buffer during update: batch_size * update_epochs = 8192 * 2 = 16384
+
+models:
+    obs_dim: 235
+    act_dim: 12
+
+log_params:
+  log_dir: "logs/ppo_run"
+  save_model_every: 100
+  logger: tensorboard 
+  
+  
+  
+  
+# APPO (Multiprocess) – Diagram & Math
+# ====================================
+#
+# ASCII diagram (paste-able into a .txt doc)
+# ------------------------------------------
+# +---------------------------------------+                       +--------------------------------------------+
+# |           Main Process (GPU)          |                       |           Worker Processes (CPU)           |
+# |  - Actor θ, Critic φ                  |                       |  [num_workers = W]                         |
+# |  - Optimizers, TensorBoard            |<-- (sample batches) --|  For each worker i = 1..W:                 |
+# |                                       |                       |   - Headless Isaac Sim                     |
+# | 1) Serialize θ, φ --------------------+--- (weights) -------> |   - VecEnv with B = envs_per_worker envs   |
+# | 2) Receive + combine worker batches   |                       |   - Collect T = steps_per_env steps        |
+# | 3) Shuffle buffer                     |                       |   - Push (s, a, r, logπ_old, V_old, done)  |
+# | 4) Run update_epochs × SGD on GPU     |                       +--------------------------------------------+
+# | 5) Broadcast new θ, φ                 |
+# +---------------------------------------+
+# 
+# 
+# Notation
+# --------
+# W  = num_workers
+# B  = envs_per_worker   (vectorized envs per worker)
+# T  = steps_per_env     (rollout length per environment before update)
+# d_s = obs_dim          (per-env observation dimension)
+# d_a = act_dim          (per-env action dimension)
+# ε = clip_eps           (PPO clipping parameter)
+# γ = gamma              (discount factor)
+# λ = lam                (GAE parameter)
+# c_ent = entropy_coef   (entropy regularizer weight)
+# 
+# Shapes and buffer
+# -----------------
+# Per worker i: a rollout collects tensors of shape [T, B, ...].
+# Across all workers (concatenated on time/worker axis), the buffer before update has size:
+#     N_buffer = W × B × T        (number of time–env samples)
+# 
+# Recommended flattening for learning minibatches:
+#     S  ∈ ℝ^{N_buffer × d_s}     states/observations
+#     A  ∈ ℝ^{N_buffer × d_a}     actions
+#     logπ_old ∈ ℝ^{N_buffer}     old log-probs
+#     V_old    ∈ ℝ^{N_buffer}     old value estimates
+#     done     ∈ {0,1}^{N_buffer}
+#     R        ∈ ℝ^{N_buffer}     returns
+#     Â       ∈ ℝ^{N_buffer}     advantages
+# 
+# Minibatching and update counts
+# ------------------------------
+# Given batch_size = M:
+#     num_minibatches_per_epoch = ceil(N_buffer / M)
+#     total_gradient_steps_per_iteration = update_epochs × num_minibatches_per_epoch
+# 
+# Environment steps per iteration:
+#     env_steps_per_iteration = N_buffer = W × B × T
+# 
+# Generalized Advantage Estimation (GAE)
+# --------------------------------------
+# Let δ_t = r_t + γ (1 - d_t) V(s_{t+1}) - V(s_t). Then the (truncated) GAE is
+#    Â_t = δ_t + γλ (1 - d_t) δ_{t+1} + (γλ)^2 (1 - d_t)(1 - d_{t+1}) δ_{t+2} + …
+# In recursive form (backwards over the rollout):
+#     Â_t = δ_t + γλ (1 - d_t) Â_{t+1}
+# Returns (for value target):
+#     R_t = Â_t + V(s_t)
+# 
+# Policy and value objectives (PPO-Clip)
+# --------------------------------------
+# Let r_t(θ) = exp( log π_θ(a_t | s_t) - log π_{θ_old}(a_t | s_t) ).
+# Clipped policy loss (to minimize):
+#     L_π(θ) = - E_t [ min( r_t(θ) Â_t, clip(r_t(θ), 1 - ε, 1 + ε) Â_t ) ] - c_ent · H[π_θ(·|s_t)]
+# Value loss:
+#     L_V(φ) = E_t [ ( V_φ(s_t) - R_t )^2 ]
+# 
+# Diagonal-Gaussian policy (per action dimension)
+# -----------------------------------------------
+# Actor outputs μ(s) ∈ ℝ^{d_a} and σ(s) ∈ ℝ_{>0}^{d_a} (often via log σ). The policy is
+#     π_θ(a|s) = 𝒩( a ; μ(s), diag(σ(s)^2) )
+# If actions are squashed with tanh to [-1,1], adjust log-prob with the tanh Jacobian.
+# 
+# Putting it together (one learning iteration)
+# --------------------------------------------
+# 1) Each worker i = 1..W runs B envs for T steps, pushing (s,a,r,logπ_old,V_old,done).
+# 2) Main process concatenates buffers → N_buffer = WBT samples, flattens to [N_buffer, ...].
+# 3) For epoch = 1..update_epochs:
+#        Shuffle indices; split into minibatches of size batch_size.
+#        For each minibatch: compute new log-probs, ratio r_t, clipped loss, entropy, value loss.
+#        Take one optimizer step for actor and critic.
+# 4) Broadcast updated (θ, φ) to all workers and repeat.
+   
+

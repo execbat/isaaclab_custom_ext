@@ -1,0 +1,25 @@
+[project]
+name = "isaaclab_custom_ext"
+version = "0.1.0"
+description = "Local extension for IsaacLab (configs + rewards)"
+authors = [{name="Evgenii Dushkin at Robot Expertise Hub"}]
+requires-python = ">=3.11"
+dependencies = [
+    "hydra-core>=1.3",
+    "omegaconf>=2.3",
+    "torch",
+    "gymnasium",
+    "dill",
+]
+
+[build-system]
+requires = ["setuptools>=62"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["isaaclab_custom_ext"]
+
+[tool.setuptools.package-data]
+isaac_hydra_ext = ["conf/**/*"]
+
+
