@@ -3,20 +3,32 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+
+
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg, RewardsCfg  
+from isaaclab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import RewardsCfg  
+
 from isaaclab.assets.articulation import ArticulationCfg
 
 ##
 # Pre-defined configs
 ##
 #from isaaclab_assets import G1_MINIMAL_CFG, MATH_G1_23DF_CFG  # isort: skip
-from .unitree_g1_23dof.asset_unitree_g1_23dof import MATH_G1_23DF_CFG
+from isaaclab_custom_ext.unitree_g1_23dof.asset_unitree_g1_23dof import MATH_G1_23DF_CFG
+from isaaclab_custom_ext.custom_env_1.custom_velocity_env_cfg import CustomLocomotionVelocityRoughEnvCfg
 ###
+
+
+# import of sensors
+import isaaclab.sim as sim_utils
+from isaaclab.sensors import CameraCfg
+from isaaclab.sensors.ray_caster.patterns import LidarPatternCfg
+from isaaclab.sensors.ray_caster import RayCasterCfg
+from isaaclab.sensors.imu import ImuCfg
 
 
 @configclass
@@ -80,7 +92,7 @@ class G1Rewards(RewardsCfg):
 
         
 @configclass
-class G1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
+class G1RoughEnv1Cfg(CustomLocomotionVelocityRoughEnvCfg):
     rewards: G1Rewards = G1Rewards()
 
     def __post_init__(self):
@@ -132,7 +144,63 @@ class G1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         # terminations
         # self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis", ".*_hip_.*", ".*_wrist_.*", ".*shoulder_.*", ".*knee_.*", ".*elbow_.*"]
         self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis", ".*_hip_.*", ".*knee_.*", ".*elbow_.*", ".*_wrist_.*"]
-         
+        
+
+        # SENSORS
+        # ====== paths to mount places ======
+        #cam_mount   = "{ENV_REGEX_NS}/Robot/torso_link/d435_link"
+        #lidar_mount = "{ENV_REGEX_NS}/Robot/torso_link/mid360_link"
+        #imu_mount   = "{ENV_REGEX_NS}/Robot/torso_link/imu_in_torso"
+
+        # 1 === FRONT RGB-D CAMERA  ===
+        cam_spawn = sim_utils.PinholeCameraCfg(  # USD Camera spawner
+            focal_length=0.88,                   
+            horizontal_aperture=2.0,              
+            clipping_range=(0.05, 20.0),
+        )
+
+        self.scene.front_camera = CameraCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/torso_link/d435_link/camera",  
+            spawn=cam_spawn,
+            width=640,
+            height=480,
+            data_types=["rgb", "distance_to_image_plane"],  # RGB + "depth"
+            update_period=0.0,           # every step of env env (sync)
+            update_latest_camera_pose=True,
+        )
+
+        # === 360° LiDAR via RayCaster  ===
+        lidar_pattern = LidarPatternCfg(
+            channels=16,                           # number of vertical rays
+            vertical_fov_range=(-15.0, 15.0),      # degrees
+            horizontal_fov_range=(0.0, 360.0),     # full circle
+            horizontal_res=0.2,                    # grad/step (0.2° -> 1800 datapoints for 360°)
+        )
+        self.scene.lidar_top = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/torso_link/mid360_link",
+            update_period=1 / 60,
+            offset=RayCasterCfg.OffsetCfg(pos=(0, 0, 0.5)),
+            mesh_prim_paths=["/World/ground"],     # The list of mesh primitive paths to ray cast against
+            ray_alignment="yaw",                   # Specify in what frame the rays are projected onto the ground. Default is "base" ["base", "yaw", "world"]
+            pattern_cfg= lidar_pattern,
+            debug_vis= False,           
+        )
+        
+
+        # === IMU inside of torso ===
+        self.scene.imu = ImuCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # This prom should have rigid body
+            update_period=0.0,     # every step (sync)
+            history_length=1,
+            offset=ImuCfg.OffsetCfg(
+                pos=(-0.03959, -0.00224, 0.13792),                
+                rot=(1.0, 0.0, 0.0, 0.0),            
+            )
+        )       
+        
+        
+        
+        
     def get_metrics(self) -> dict:
         metrics = {}
         metrics["Metrics/command_range/lin_vel_x_max"] = self.command_manager.commands["base_velocity"].ranges.lin_vel_x[1]
@@ -140,15 +208,12 @@ class G1RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         return metrics     
 
 @configclass
-class G1RoughEnvCfg_PLAY(LocomotionVelocityRoughEnvCfg):
-    rewards: G1Rewards = G1Rewards()
+class G1RoughEnv1Cfg_PLAY(G1RoughEnv1Cfg):
+
 
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
-        # Scene
-        self.scene.robot = MATH_G1_23DF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-        self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
         
         self.episode_length_s = 40.0
 
@@ -170,20 +235,6 @@ class G1RoughEnvCfg_PLAY(LocomotionVelocityRoughEnvCfg):
         }
         self.events.base_com = None
 
-        # Rewards
-        # self.rewards.lin_vel_z_l2.weight = 0.0
-        self.rewards.undesired_contacts = None
-        # self.rewards.flat_orientation_l2.weight = -1.0
-        # self.rewards.action_rate_l2.weight = -0.005
-        # self.rewards.dof_acc_l2.weight = -1.25e-7
-        # self.rewards.dof_acc_l2.params["asset_cfg"] = SceneEntityCfg(
-        #     "robot", joint_names=[".*_hip_.*", ".*_knee_joint"]
-        # )
-        # self.rewards.dof_torques_l2.weight = -1.5e-7
-        # self.rewards.dof_torques_l2.params["asset_cfg"] = SceneEntityCfg(
-        #     "robot", joint_names=[".*_hip_.*", ".*_knee_joint", ".*_ankle_.*"]
-        # )
-        
         # terminations
         self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis"]	
 
@@ -191,6 +242,9 @@ class G1RoughEnvCfg_PLAY(LocomotionVelocityRoughEnvCfg):
         self.commands.base_velocity.ranges.lin_vel_x = (0.0, 2.0)
         self.commands.base_velocity.ranges.lin_vel_y = (-0.0, 0.0)
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
+        
+        # switch ON debug vis
+        self.scene.lidar_top.debug_vis = True
 
         
     def get_metrics(self) -> dict:

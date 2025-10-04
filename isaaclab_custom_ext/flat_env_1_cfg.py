@@ -6,13 +6,13 @@
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
-from .rough_env_cfg import G1RoughEnvCfg
+from .rough_env_1_cfg import G1RoughEnv1Cfg
 
 
 
 
 @configclass
-class G1FlatEnvCfg(G1RoughEnvCfg):
+class G1FlatEnv1Cfg(G1RoughEnv1Cfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
@@ -45,7 +45,7 @@ class G1FlatEnvCfg(G1RoughEnvCfg):
 
 
 
-class G1FlatEnvCfg_PLAY(G1FlatEnvCfg):
+class G1FlatEnv1Cfg_PLAY(G1FlatEnv1Cfg):
     def __post_init__(self) -> None:
         # post init of parent
         super().__post_init__()

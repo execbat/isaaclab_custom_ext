@@ -3,5 +3,4 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-
-__all__ = []
+from .asset_unitree_g1_23dof import MATH_G1_CFG
