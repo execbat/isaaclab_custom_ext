@@ -156,22 +156,23 @@ class G1RoughEnv1Cfg(CustomLocomotionVelocityRoughEnvCfg):
         cam_spawn = sim_utils.PinholeCameraCfg(  # USD Camera spawner
             focal_length=0.88,                   
             horizontal_aperture=2.0,              
-            clipping_range=(0.05, 20.0),
+            clipping_range=(0.1, 15.0),
         )
 
         self.scene.front_camera = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link/d435_link/camera",  
             spawn=cam_spawn,
-            width=640,
-            height=480,
-            data_types=["rgb", "distance_to_image_plane"],  # RGB + "depth"
-            update_period=0.0,           # every step of env env (sync)
+            width=160,   # 640
+            height=120,  # 480
+            data_types=["distance_to_image_plane"],  # RGB + "depth" ["rgb", "distance_to_image_plane"]
+            update_period= 1/ 60,           # every step of env env (sync)
             update_latest_camera_pose=True,
+            depth_clipping_behavior="max",
         )
 
         # === 360° LiDAR via RayCaster  ===
         lidar_pattern = LidarPatternCfg(
-            channels=16,                           # number of vertical rays
+            channels=8 ,                           # number of vertical rays
             vertical_fov_range=(-15.0, 15.0),      # degrees
             horizontal_fov_range=(0.0, 360.0),     # full circle
             horizontal_res=0.2,                    # grad/step (0.2° -> 1800 datapoints for 360°)
@@ -190,7 +191,7 @@ class G1RoughEnv1Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # === IMU inside of torso ===
         self.scene.imu = ImuCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # This prom should have rigid body
-            update_period=0.0,     # every step (sync)
+            update_period= 1 / 60,     # every step (sync)
             history_length=1,
             offset=ImuCfg.OffsetCfg(
                 pos=(-0.03959, -0.00224, 0.13792),                

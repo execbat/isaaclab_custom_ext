@@ -14,12 +14,15 @@ class G1RoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 15000000000
     save_interval = 50
     experiment_name = "custom_unitree_g1_rough"
-    empirical_normalization = False
+    empirical_normalization = True
     policy = RslRlPpoActorCriticCfg(
-        init_noise_std=1.0,
+        init_noise_std=0.6,
+        noise_std_type="log",
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[512, 256, 128],
         activation="elu",
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
     )
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
@@ -42,12 +45,15 @@ class G1FlatPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 15000000000
     save_interval = 50
     experiment_name = "custom_unitree_g1_flat"
-    empirical_normalization = False
+    empirical_normalization = True
     policy = RslRlPpoActorCriticCfg(
-        init_noise_std=1.0,
+        init_noise_std=0.6,
+        noise_std_type="log",
         actor_hidden_dims=[512, 256, 128],
         critic_hidden_dims=[512, 256, 128],
         activation="elu",
+        actor_obs_normalization=True,
+        critic_obs_normalization=True,
     )
     algorithm = RslRlPpoAlgorithmCfg(
         value_loss_coef=1.0,
