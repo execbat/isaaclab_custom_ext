@@ -26,7 +26,7 @@ This project shows a complete, reproducible RL workflow on a custom **Unitree G1
     - `Ext-Isaac-Velocity-Flat-G1-v1` — v0 + **sensors** (RGB‑D, LiDAR, IMU).
     - `Ext-Isaac-Velocity-Flat-G1-Play-v1` — play mode for v1.
   - Scripts:
-    - `isaaclab_custom_ext.scripts.run_train_with_ext` — training launcher (Hydra + RSL‑RL).
+    - `isaaclab_custom_ext.scripts.run_train_with_ext` — training launcher (isaaclab_custom_ext + RSL‑RL).
     - `isaaclab_custom_ext.scripts.run_play_with_ext` — play/rollout launcher.
 
 - **Sensors on the robot** (v1 environments):
@@ -52,8 +52,8 @@ This project shows a complete, reproducible RL workflow on a custom **Unitree G1
 
 1) Create a folder for your custom packages and clone the extension:
 ```bash
-mkdir -p isaac_hydra_ext
-cd isaac_hydra_ext
+mkdir -p isaaclab_custom_ext
+cd isaaclab_custom_ext
 git clone https://github.com/execbat/isaaclab_custom_ext.git
 ```
 
@@ -75,7 +75,7 @@ pip install -e .
 ```
 isaaclab_custom_ext/
   ├─ isaaclab_custom_ext/
-  │   ├─ registration/           # gym ids & hydra entry points
+  │   ├─ registration/           # gym ids & isaaclab_custom_ext entry points
   │   ├─ custom_env_*/           # env/sensor/obs configs
   │   ├─ unitree_g1_23dof/       # G1 (23-DoF) asset config(s)
   │   ├─ scripts/
