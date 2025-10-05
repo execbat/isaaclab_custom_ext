@@ -23,15 +23,31 @@ from isaaclab.actuators import ActuatorNetMLPCfg, DCMotorCfg, ImplicitActuatorCf
 from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
 
+
+import importlib.util
+from pathlib import Path
+import os
+
+PKG = "isaaclab_custom_ext"
+spec = importlib.util.find_spec(PKG)
+pkg_dir = os.path.dirname(spec.origin)
 ##
 # Configuration - Actuators.
 ##
+
+usd_path = os.path.join(
+    pkg_dir,
+    "unitree_g1_23dof",
+    "unitree_23dof_usd",
+    "g1_23dof",
+    "g1_23dof.usd",
+)
 
 
 """Configuration for the Unitree G1 23DF AnimalMath Humanoid robot."""
 MATH_G1_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path="/home/johnny/Documents/ISAACLAB/isaaclab_custom_ext/isaaclab_custom_ext/unitree_g1_23dof/unitree_23dof_usd/g1_23dof/g1_23dof.usd",
+        usd_path=usd_path,
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
