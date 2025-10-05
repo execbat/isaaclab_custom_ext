@@ -191,9 +191,10 @@ In Isaac Lab, this is configured via **Observation Manager** terms (for what goe
 
 - Built on **NVIDIA Isaac Sim** and **Isaac Lab**.
 - Robot: **Unitree G1 (23-DoF)** — custom USD and configs.
-- Course for **RoboUniversity** **RoboStore** designed by **Robot Expertise Hub**.
-
-![Isaac Lab](robotexpertisehub.jpg)
+- Course for **RoboUniversity** **RoboStore** designed by **Evgenii Dushkin** 
+```
+https://www.linkedin.com/in/evgenii-dushkin/
+```
 
 ---
 
