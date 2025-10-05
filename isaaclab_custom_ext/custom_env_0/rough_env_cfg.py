@@ -15,7 +15,7 @@ from isaaclab.assets.articulation import ArticulationCfg
 # Pre-defined configs
 ##
 #from isaaclab_assets import G1_MINIMAL_CFG, MATH_G1_23DF_CFG  # isort: skip
-from .unitree_g1_23dof.asset_unitree_g1_23dof import MATH_G1_23DF_CFG
+from isaaclab_custom_ext.unitree_g1_23dof.asset_unitree_g1_23dof import MATH_G1_23DF_CFG
 ###
 
 
