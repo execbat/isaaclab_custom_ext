@@ -161,7 +161,7 @@ class G1RoughEnv1Cfg(CustomLocomotionVelocityRoughEnvCfg):
 
         self.scene.front_camera = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link/d435_link/camera",  
-            offset=CameraCfg.OffsetCfg(pos=(0.0576235, 0.01753, 0.41987), rot=(0.99, 0.0, 0.007250, 0.0)), # Offset is d435_link frame in reference to torso_link from urdf
+            offset=CameraCfg.OffsetCfg(pos=(0, 0, 0), rot=(1, 0, 0, 0), convention="world"), # Offset is d435_link frame in reference to torso_link from urdf
             spawn=cam_spawn,            
             width=160,   # 640
             height=120,  # 480
@@ -181,7 +181,7 @@ class G1RoughEnv1Cfg(CustomLocomotionVelocityRoughEnvCfg):
         self.scene.lidar_top = RayCasterCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
             update_period=0.02,
-            offset=RayCasterCfg.OffsetCfg(pos=(0.0002835, 0.00003, 0.40618), rot=(1.0, 0.0, 0.000350, 0.0)), # Offset is mid360 link frame in reference to torso_link from urdf
+            offset=RayCasterCfg.OffsetCfg(pos=(0.0002835, 0.00003, 0.40618), rot=(0.999799, 0.0, 0.020070, 0.0)), # Offset is mid360 link frame in reference to torso_link from urdf
             mesh_prim_paths=["/World/ground"],     # The list of mesh primitive paths to ray cast against
             ray_alignment="base",                  # Specify in what frame the rays are projected onto the ground. Default is "base" ["base", "yaw", "world"]
             pattern_cfg= lidar_pattern,
