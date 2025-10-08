@@ -59,5 +59,8 @@ class G1FlatEnv1Cfg_PLAY(G1FlatEnv1Cfg):
         self.events.base_external_force_torque = None
         self.events.push_robot = None
 
-        
+        # switch ON debug vis
+        #self.scene.lazy_sensor_update = False
+        self.scene.lidar_top.debug_vis = True
+        self.scene.imu.debug_vis = True
   

@@ -161,11 +161,12 @@ class G1RoughEnv1Cfg(CustomLocomotionVelocityRoughEnvCfg):
 
         self.scene.front_camera = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link/d435_link/camera",  
-            spawn=cam_spawn,
+            offset=CameraCfg.OffsetCfg(pos=(0.0576235, 0.01753, 0.41987), rot=(0.99, 0.0, 0.007250, 0.0)), # Offset is d435_link frame in reference to torso_link from urdf
+            spawn=cam_spawn,            
             width=160,   # 640
             height=120,  # 480
             data_types=["distance_to_image_plane"],  # RGB + "depth" ["rgb", "distance_to_image_plane"]
-            update_period= 1/ 60,           # every step of env env (sync)
+            update_period= 0.1,                    # every step of env env (sync)
             update_latest_camera_pose=True,
             depth_clipping_behavior="max",
         )
@@ -173,30 +174,33 @@ class G1RoughEnv1Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # === 360° LiDAR via RayCaster  ===
         lidar_pattern = LidarPatternCfg(
             channels=8 ,                           # number of vertical rays
-            vertical_fov_range=(-15.0, 15.0),      # degrees
-            horizontal_fov_range=(0.0, 360.0),     # full circle
+            vertical_fov_range=(-90.0, 90.0),      # degrees
+            horizontal_fov_range=(-180, 180.0),     
             horizontal_res=0.2,                    # grad/step (0.2° -> 1800 datapoints for 360°)
         )
         self.scene.lidar_top = RayCasterCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/torso_link/mid360_link",
-            update_period=1 / 60,
-            offset=RayCasterCfg.OffsetCfg(pos=(0, 0, 0.5)),
+            prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
+            update_period=0.02,
+            offset=RayCasterCfg.OffsetCfg(pos=(0.0002835, 0.00003, 0.40618), rot=(1.0, 0.0, 0.000350, 0.0)), # Offset is mid360 link frame in reference to torso_link from urdf
             mesh_prim_paths=["/World/ground"],     # The list of mesh primitive paths to ray cast against
-            ray_alignment="yaw",                   # Specify in what frame the rays are projected onto the ground. Default is "base" ["base", "yaw", "world"]
+            ray_alignment="base",                  # Specify in what frame the rays are projected onto the ground. Default is "base" ["base", "yaw", "world"]
             pattern_cfg= lidar_pattern,
-            debug_vis= False,           
+            debug_vis=False,  
+            max_distance=100,         
         )
         
 
         # === IMU inside of torso ===
         self.scene.imu = ImuCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # This prom should have rigid body
-            update_period= 1 / 60,     # every step (sync)
+            prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
+            update_period= 0.02,                   # every step (sync)
             history_length=1,
-            offset=ImuCfg.OffsetCfg(
+            offset=ImuCfg.OffsetCfg(               # Offset is imu link frame in reference to torso_link from urdf
                 pos=(-0.03959, -0.00224, 0.13792),                
                 rot=(1.0, 0.0, 0.0, 0.0),            
-            )
+            ),
+            debug_vis=False
+            
         )       
         
         
@@ -245,7 +249,9 @@ class G1RoughEnv1Cfg_PLAY(G1RoughEnv1Cfg):
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
         
         # switch ON debug vis
+        #self.scene.lazy_sensor_update = False
         self.scene.lidar_top.debug_vis = True
+        self.scene.imu.debug_vis = True
 
         
     def get_metrics(self) -> dict:
