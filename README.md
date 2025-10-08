@@ -138,8 +138,7 @@ isaaclab_custom_ext.scripts.run_train_with_ext \
 isaaclab_custom_ext.scripts.run_play_with_ext \
 --task Ext-Isaac-Velocity-Flat-G1-Play-v0 \
 --num_envs 1 \
---enable_cameras \
---checkpoint ./logs/rsl_rl/custom_unitree_g1_flat/2025-10-03_17-29-08/model_0.pt \
+--checkpoint ./logs/rsl_rl/custom_unitree_g1_flat/<experiment folder name (contains date-time)>/<model_name>.pt \
 --rendering_mode performance
 ```
 
@@ -160,7 +159,7 @@ isaaclab_custom_ext.scripts.run_play_with_ext \
 --task Ext-Isaac-Velocity-Flat-G1-Play-v1 \
 --num_envs 1 \
 --enable_cameras \
---checkpoint ./logs/rsl_rl/custom_unitree_g1_flat/2025-10-03_17-29-08/model_0.pt \
+--checkpoint ./logs/rsl_rl/custom_unitree_g1_flat/<experiment folder name (contains date-time)>/<model_name>.pt \
 --rendering_mode performance
 ```
 
