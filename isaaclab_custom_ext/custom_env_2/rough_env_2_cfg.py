@@ -9,6 +9,7 @@ from isaaclab.utils import configclass
 
 
 from isaaclab.assets.articulation import ArticulationCfg
+from isaaclab.assets import RigidObjectCfg, RigidObjectCollectionCfg
 
 ##
 # Pre-defined configs
@@ -16,7 +17,7 @@ from isaaclab.assets.articulation import ArticulationCfg
 #from isaaclab_assets import G1_MINIMAL_CFG, MATH_G1_23DF_CFG  # isort: skip
 from isaaclab_custom_ext.unitree_g1_23dof.asset_unitree_g1_23dof import MATH_G1_23DF_CFG
 from isaaclab_custom_ext.custom_env_2.custom_velocity_env_cfg import CustomLocomotionVelocityRoughEnvCfg
-from isaaclab_custom_ext.custom_env_2.objects import TARGET_MARKER
+from isaaclab_custom_ext.custom_env_2.objects import TARGET_MARKER, OBSTACLE_CYL
 ###
 
 
@@ -29,7 +30,7 @@ from isaaclab.sensors.imu import ImuCfg
 
 
 
-
+MAX_OBS = 40
         
 @configclass
 class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
@@ -40,15 +41,28 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # post init of parent
         super().__post_init__()
         # Scene
+        
+        # columns
+        objs = {}
+        for i in range(MAX_OBS):
+            name = f"obst_{i:02d}"
+            objs[name] = OBSTACLE_CYL.replace(
+                prim_path=f"{{ENV_REGEX_NS}}/{name}",               
+                spawn=OBSTACLE_CYL.spawn.replace(copy_from_source=False),
+            )        
+        
         self.scene.robot = MATH_G1_23DF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
         
-        
         # additional items
+
+        self.scene.obstacles = RigidObjectCollectionCfg(rigid_objects=objs)       
+        # target
         self.scene.target = TARGET_MARKER.replace(
             prim_path="{ENV_REGEX_NS}/Target",
             spawn=TARGET_MARKER.spawn.replace(copy_from_source=False), 
-        )      
+        )  
+        
          
         self.episode_length_s = 40.0
 
@@ -130,7 +144,10 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
             prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
             update_period=0.02,
             offset=RayCasterCfg.OffsetCfg(pos=(0.0002835, 0.00003, 0.40618), rot=(0.999799, 0.0, 0.020070, 0.0)), # Offset is mid360 link frame in reference to torso_link from urdf
-            mesh_prim_paths=["/World/ground"],     # The list of mesh primitive paths to ray cast against
+            mesh_prim_paths=["/World/ground",
+                            # /{ENV_REGEX_NS}/obst_.*",   
+                            #"{ENV_REGEX_NS}/Target",
+                            ],     
             ray_alignment="base",                  # Specify in what frame the rays are projected onto the ground. Default is "base" ["base", "yaw", "world"]
             pattern_cfg= lidar_pattern,
             debug_vis=False,  
@@ -150,8 +167,9 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
             debug_vis=False
             
         )       
-        
-        
+
+
+
         
         
     def get_metrics(self) -> dict:

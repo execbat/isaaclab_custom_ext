@@ -6,8 +6,8 @@
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
-from .rough_env_2_cfg import G1RoughEnv2Cfg
-
+from isaaclab_custom_ext.custom_env_2.rough_env_2_cfg import G1RoughEnv2Cfg
+from isaaclab_custom_ext.custom_env_2.objects import TARGET_MARKER
 
 
 
@@ -44,7 +44,6 @@ class G1FlatEnv2Cfg(G1RoughEnv2Cfg):
 
 
 
-
 class G1FlatEnv2Cfg_PLAY(G1FlatEnv2Cfg):
     def __post_init__(self) -> None:
         # post init of parent
@@ -63,4 +62,5 @@ class G1FlatEnv2Cfg_PLAY(G1FlatEnv2Cfg):
         #self.scene.lazy_sensor_update = False
         self.scene.lidar_top.debug_vis = True
         self.scene.imu.debug_vis = True
-  
+
+

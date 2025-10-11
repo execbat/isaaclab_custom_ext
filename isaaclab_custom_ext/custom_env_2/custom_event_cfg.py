@@ -3,7 +3,7 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaaclab_custom_ext.custom_env_2.events import respawn_target, respawn_reached_targets, commands_towards_target #, spawn_obstacles_at_reset
+from isaaclab_custom_ext.custom_env_2.events import respawn_target, respawn_reached_targets, commands_towards_target, spawn_obstacles_at_reset
 
 
 
@@ -84,15 +84,15 @@ class EventCfg:
     spawn_target_on_reset = EventTerm(
         func=respawn_target, 
         mode="reset",
-        params={"r_min": 15.0, "r_max": 20.0, "z": 0.05},
+        params={"r_min": 2.0, "r_max": 8.0, "z": 0.05},
     )
-    '''
+    
     spawn_obstacles_on_reset = EventTerm(
         func=spawn_obstacles_at_reset,
         mode="reset",
         params={"num_obstacles": (40, 40), "r_max": 10.0, "keepout_robot": 0.8, "keepout_goal": 0.8},
     )
-    '''
+    
 
     # interval
     push_robot = EventTerm(
@@ -105,21 +105,8 @@ class EventCfg:
     respawn_when_reached = EventTerm(
         func=respawn_reached_targets,
         mode="interval",
-        interval_range_s=(1.0, 1.0),
-        params={"reach_radius": 0.1, "r_min": 15.0, "r_max": 20.0, "z": 0.05},
+        interval_range_s=(1, 1),
+        params={"reach_radius": 0.6, "r_min": 4.0, "r_max": 20.0, "z": 0.05},
     )        
     
-    update_cmd_towards_target = EventTerm(
-        func=commands_towards_target,
-        mode="interval",
-        interval_range_s=(0.0, 0.0),
-        params={
-            "robot_entity": SceneEntityCfg("robot"),
-            "target_entity":  SceneEntityCfg("target"),
-            "max_speed": 1.0,
-            "k_lin":  1.0,
-            "stop_radius":  0.15,
-            "allow_strafe": False,
-        },    
-    )
 
