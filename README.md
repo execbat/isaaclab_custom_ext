@@ -142,6 +142,8 @@ isaaclab_custom_ext.scripts.run_play_with_ext \
 --rendering_mode performance
 ```
 
+
+
 ### Training — **Version 1 (with sensors and RayCaster LiDAR) SENSORS AND OBSERVATIONS**
 ```bash
 ./isaaclab.sh -p -m\
@@ -163,6 +165,8 @@ isaaclab_custom_ext.scripts.run_play_with_ext \
 --rendering_mode performance
 ```
 
+
+
 ### Training — **Version 2 (with sensors and RTX LiDAR) ACTIONS AND CUSTOM COMMANDS**
 ```bash
 ./isaaclab.sh -p -m\
@@ -183,6 +187,8 @@ isaaclab_custom_ext.scripts.run_play_with_ext \
 --checkpoint ./logs/rsl_rl/custom_unitree_g1_flat/<experiment folder name (contains date-time)>/<model_name>.pt \
 --rendering_mode performance
 ```
+
+
 
 ### Training — **Version 3 (with sensor and RTX LiDAR) REWARDS EVENTS TERMINATIONS**
 ```bash
