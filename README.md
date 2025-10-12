@@ -123,7 +123,7 @@ isaaclab_custom_ext/
 
 > Replace paths as needed for your workspace. From `IsaacLab/` root:
 
-### Training — **Version 0**
+### Training — **Version 0 BASIC ENV**
 ```bash
 ./isaaclab.sh -p -m\
 isaaclab_custom_ext.scripts.run_train_with_ext \
@@ -142,7 +142,7 @@ isaaclab_custom_ext.scripts.run_play_with_ext \
 --rendering_mode performance
 ```
 
-### Training — **Version 1 (with sensors)**
+### Training — **Version 1 (with sensors) SENSORS AND OBSERVATIONS**
 ```bash
 ./isaaclab.sh -p -m\
 isaaclab_custom_ext.scripts.run_train_with_ext \
@@ -162,6 +162,50 @@ isaaclab_custom_ext.scripts.run_play_with_ext \
 --checkpoint ./logs/rsl_rl/custom_unitree_g1_flat/<experiment folder name (contains date-time)>/<model_name>.pt \
 --rendering_mode performance
 ```
+
+### Training — **Version 2 (with sensors) ACTIONS AND CUSTOM COMMANDS**
+```bash
+./isaaclab.sh -p -m\
+isaaclab_custom_ext.scripts.run_train_with_ext \
+--task Ext-Isaac-Velocity-Flat-G1-v2 \
+--num_envs 1 \
+--enable_cameras \
+--headless
+```
+
+### Play/Testing — **Version 2 (with sensors)**
+```bash
+./isaaclab.sh -p -m\
+isaaclab_custom_ext.scripts.run_play_with_ext \
+--task Ext-Isaac-Velocity-Flat-G1-Play-v2 \
+--num_envs 1 \
+--enable_cameras \
+--checkpoint ./logs/rsl_rl/custom_unitree_g1_flat/<experiment folder name (contains date-time)>/<model_name>.pt \
+--rendering_mode performance
+```
+
+### Training — **Version 3 (with sensors) REWARDS EVENTS TERMINATIONS**
+```bash
+./isaaclab.sh -p -m\
+isaaclab_custom_ext.scripts.run_train_with_ext \
+--task Ext-Isaac-Velocity-Flat-G1-v3 \
+--num_envs 1 \
+--enable_cameras \
+--headless
+```
+
+### Play/Testing — **Version 3 (with sensors)**
+```bash
+./isaaclab.sh -p -m\
+isaaclab_custom_ext.scripts.run_play_with_ext \
+--task Ext-Isaac-Velocity-Flat-G1-Play-v3 \
+--num_envs 1 \
+--enable_cameras \
+--checkpoint ./logs/rsl_rl/custom_unitree_g1_flat/<experiment folder name (contains date-time)>/<model_name>.pt \
+--rendering_mode performance
+```
+
+
 
 > **Tip:** Increase `--num_envs` when your GPU/CPU budget allows. Sensors, especially cameras, consume VRAM; tune resolutions and update periods accordingly.
 
