@@ -18,7 +18,7 @@ from isaaclab.assets import RigidObjectCfg, RigidObjectCollectionCfg
 #from isaaclab_assets import G1_MINIMAL_CFG, MATH_G1_23DF_CFG  # isort: skip
 from isaaclab_custom_ext.unitree_g1_23dof.asset_unitree_g1_23dof import MATH_G1_23DF_CFG
 from isaaclab_custom_ext.custom_env_2.custom_velocity_env_cfg import CustomLocomotionVelocityRoughEnvCfg
-from isaaclab_custom_ext.custom_env_2.objects import TARGET_MARKER, OBSTACLE_CYL
+from isaaclab_custom_ext.custom_env_2.objects import TARGET_MARKER #, OBSTACLE_CYL
 
 ###
 
@@ -52,21 +52,12 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         super().__post_init__()
         # Scene
         
-        # columns
-        objs = {}
-        for i in range(MAX_OBS):
-            name = f"obst_{i:02d}"            
-            objs[name] = OBSTACLE_CYL.replace(
-                prim_path=f"{{ENV_REGEX_NS}}/{name}",               
-                spawn=OBSTACLE_CYL.spawn.replace(copy_from_source=False),
-            )        
-        
         self.scene.robot = MATH_G1_23DF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
         
         # additional items
 
-        self.scene.obstacles = RigidObjectCollectionCfg(rigid_objects=objs)       
+    
         # target
         self.scene.target = TARGET_MARKER.replace(
             prim_path="{ENV_REGEX_NS}/Target",

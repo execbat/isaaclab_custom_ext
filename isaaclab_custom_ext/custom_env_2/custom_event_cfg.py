@@ -3,7 +3,7 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaaclab_custom_ext.custom_env_2.events import respawn_target, respawn_reached_targets, spawn_obstacles_at_reset
+from isaaclab_custom_ext.custom_env_2.events import respawn_target, respawn_reached_targets 
 
 
 
@@ -88,13 +88,7 @@ class EventCfg:
         mode="reset",
         params={"r_min": 2.0, "r_max": 8.0, "z": 0.05},
     )
-    
-    spawn_obstacles_on_reset = EventTerm(
-        func=spawn_obstacles_at_reset,
-        mode="reset",
-        params={"num_obstacles": (40, 40), "r_max": 10.0, "keepout_robot": 0.8, "keepout_goal": 0.8},
-    )
-    
+
 
     # interval
     push_robot = EventTerm(

@@ -85,11 +85,7 @@ class ObservationsCfg:
             },
         )
         
-        # lidar observations RayCaster
-#        lidar_scan_compact = ObsTerm(
-#            func=lidar_height_channels_min,
-#            params={"sensor_cfg": SceneEntityCfg("lidar_top"), "offset": 0.0},
-#        )
+
 #       # RTX LIDAR
         rtx_lidar_points = ObsTerm(
             func=obs_rtx_lidar_points,
