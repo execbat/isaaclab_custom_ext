@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from isaaclab.managers import SceneEntityCfg
+
 from isaaclab.utils import configclass
 
 
@@ -18,6 +19,7 @@ from isaaclab.assets import RigidObjectCfg, RigidObjectCollectionCfg
 from isaaclab_custom_ext.unitree_g1_23dof.asset_unitree_g1_23dof import MATH_G1_23DF_CFG
 from isaaclab_custom_ext.custom_env_2.custom_velocity_env_cfg import CustomLocomotionVelocityRoughEnvCfg
 from isaaclab_custom_ext.custom_env_2.objects import TARGET_MARKER, OBSTACLE_CYL
+
 ###
 
 
@@ -27,6 +29,14 @@ from isaaclab.sensors import CameraCfg
 from isaaclab.sensors.ray_caster.patterns import LidarPatternCfg
 from isaaclab.sensors.ray_caster import RayCasterCfg
 from isaaclab.sensors.imu import ImuCfg
+
+from isaaclab.assets import AssetBaseCfg
+from isaaclab.sim.spawners.from_files.from_files_cfg import  UsdFileCfg
+
+
+import numpy as np
+import omni
+from isaacsim.sensors.rtx import LidarRtx
 
 
 
@@ -45,7 +55,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # columns
         objs = {}
         for i in range(MAX_OBS):
-            name = f"obst_{i:02d}"
+            name = f"obst_{i:02d}"            
             objs[name] = OBSTACLE_CYL.replace(
                 prim_path=f"{{ENV_REGEX_NS}}/{name}",               
                 spawn=OBSTACLE_CYL.spawn.replace(copy_from_source=False),
@@ -133,27 +143,16 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
             depth_clipping_behavior="max",
         )
 
-        # === 360° LiDAR via RayCaster  ===
-        lidar_pattern = LidarPatternCfg(
-            channels=8 ,                           # number of vertical rays
-            vertical_fov_range=(-90.0, 90.0),      # degrees
-            horizontal_fov_range=(-180, 180.0),     
-            horizontal_res=0.2,                    # grad/step (0.2° -> 1800 datapoints for 360°)
-        )
-        self.scene.lidar_top = RayCasterCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
-            update_period=0.02,
-            offset=RayCasterCfg.OffsetCfg(pos=(0.0002835, 0.00003, 0.40618), rot=(0.999799, 0.0, 0.020070, 0.0)), # Offset is mid360 link frame in reference to torso_link from urdf
-            mesh_prim_paths=["/World/ground",
-                            # /{ENV_REGEX_NS}/obst_.*",   
-                            #"{ENV_REGEX_NS}/Target",
-                            ],     
-            ray_alignment="base",                  # Specify in what frame the rays are projected onto the ground. Default is "base" ["base", "yaw", "world"]
-            pattern_cfg= lidar_pattern,
-            debug_vis=False,  
-            max_distance=100,         
-        )
+
+#       ##########################################################################        
+        # Lazy registration of ==RTX LIDAR== as it should be created after building all environments. 
+        # That is why creation of LIDAR executed via lazy hook throught Observation manager on the first query from ObsManager
+#        self.scene.rtx_lidar_top = SceneEntityCfg()
+#            prim_path="{ENV_REGEX_NS}/Robot/torso_link/rtx_lidar_top"
+#        )
+#        #########################################################################        
         
+  
 
         # === IMU inside of torso ===
         self.scene.imu = ImuCfg(
@@ -177,6 +176,9 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         metrics["Metrics/command_range/lin_vel_x_max"] = self.command_manager.commands["base_velocity"].ranges.lin_vel_x[1]
         metrics["Metrics/command_range/lin_vel_x_min"] = self.command_manager.commands["base_velocity"].ranges.lin_vel_x[0]
         return metrics     
+
+
+
 
 @configclass
 class G1RoughEnv2Cfg_PLAY(G1RoughEnv2Cfg):
@@ -215,8 +217,7 @@ class G1RoughEnv2Cfg_PLAY(G1RoughEnv2Cfg):
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
         
         # switch ON debug vis
-        #self.scene.lazy_sensor_update = False
-        self.scene.lidar_top.debug_vis = True
+        self.observations.policy.rtx_lidar_points.params["debug"] = True
         self.scene.imu.debug_vis = True
 
         

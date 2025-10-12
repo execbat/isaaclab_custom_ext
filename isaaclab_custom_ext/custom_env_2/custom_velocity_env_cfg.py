@@ -6,7 +6,7 @@ from .custom_event_cfg import EventCfg
 from .custom_scene_cfg import SceneCfg
 
 class CustomLocomotionVelocityRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
-    scene : SceneCfg = SceneCfg()
+    scene : SceneCfg = SceneCfg(num_envs=4096, env_spacing=2.5)
     observations: ObservationsCfg = ObservationsCfg()
     rewards: G1Rewards = G1Rewards()
     commands: CommandsCfg = CommandsCfg()

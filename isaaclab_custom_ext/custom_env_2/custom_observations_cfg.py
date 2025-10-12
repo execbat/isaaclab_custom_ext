@@ -21,6 +21,8 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import torch
 
+from .rtx_lidar_lazy_hook import obs_rtx_lidar_points
+
 ##
 # Pre-defined configs
 ##
@@ -43,8 +45,6 @@ def lidar_height_channels_min(env, sensor_cfg: SceneEntityCfg, offset: float = 0
     hs = hs.view(env.num_envs, channels, -1).amin(dim=-1)                    # (N, channels)
     # (optional) normalize/clip to stabilize the scale
     return torch.clamp(hs, -2.0, 2.0)
-
-
 
 
 @configclass
@@ -85,11 +85,17 @@ class ObservationsCfg:
             },
         )
         
-        # lidar observations
-        lidar_scan_compact = ObsTerm(
-            func=lidar_height_channels_min,
-            params={"sensor_cfg": SceneEntityCfg("lidar_top"), "offset": 0.0},
+        # lidar observations RayCaster
+#        lidar_scan_compact = ObsTerm(
+#            func=lidar_height_channels_min,
+#            params={"sensor_cfg": SceneEntityCfg("lidar_top"), "offset": 0.0},
+#        )
+#       # RTX LIDAR
+        rtx_lidar_points = ObsTerm(
+            func=obs_rtx_lidar_points,
+            params={"debug" : False},            
         )
+        
         
         # imu data
         imu_projected_gravity = ObsTerm(func=mdp.imu_projected_gravity)

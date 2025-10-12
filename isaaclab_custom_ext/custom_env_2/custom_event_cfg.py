@@ -3,13 +3,15 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaaclab_custom_ext.custom_env_2.events import respawn_target, respawn_reached_targets, commands_towards_target, spawn_obstacles_at_reset
+from isaaclab_custom_ext.custom_env_2.events import respawn_target, respawn_reached_targets, spawn_obstacles_at_reset
 
 
 
 @configclass
 class EventCfg:
     """Configuration for events."""
+    
+
 
     # startup
     physics_material = EventTerm(
