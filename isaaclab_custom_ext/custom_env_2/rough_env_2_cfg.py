@@ -126,9 +126,9 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
             prim_path="{ENV_REGEX_NS}/Robot/torso_link/d435_link/camera",  
             offset=CameraCfg.OffsetCfg(pos=(0, 0, 0), rot=(1, 0, 0, 0), convention="world"), # Offset is d435_link frame in reference to torso_link from urdf
             spawn=cam_spawn,            
-            width=160,   # 640
-            height=120,  # 480
-            data_types=["distance_to_image_plane"],  # RGB + "depth" ["rgb", "distance_to_image_plane"]
+            width=640,   # 640
+            height=480,  # 480
+            data_types=["rgb", "distance_to_image_plane"],  # RGB + "depth" ["rgb", "distance_to_image_plane"]
             update_period= 0.1,                    # every step of env env (sync)
             update_latest_camera_pose=True,
             depth_clipping_behavior="max",

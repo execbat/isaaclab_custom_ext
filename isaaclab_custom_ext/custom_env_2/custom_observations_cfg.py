@@ -22,6 +22,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import torch
 
 from .rtx_lidar_lazy_hook import obs_rtx_lidar_points
+from .observations import depth_avgpool, compressed_image_features
 
 ##
 # Pre-defined configs
@@ -75,14 +76,20 @@ class ObservationsCfg:
               
         # CUSTOM ADDED OBSERVATIONS
         # front camera Intel RealSense D435i
+        # Used Visual Transformer "theia-tiny-patch16-224-cdiv " input: RGB output: Features vector 
         cam_rgb_feat = ObsTerm(
-            func=mdp.image_features,
+            func=compressed_image_features,
             params={
                 "sensor_cfg": SceneEntityCfg("front_camera"),
-                "data_type": "distance_to_image_plane",          #  ["rgb", "distance_to_image_plane"] 
-                "model_name": "resnet18",                        #  model feature extractor
-                #"model_device": env.device
+                "data_type": "rgb",
+                "model_name": "theia-tiny-patch16-224-cdiv",  # or cddsv
+                #"model_device": env.device,                  
             },
+        )
+        # preprocessed depth map from the front camera
+        cam_depth_vec = ObsTerm(
+            func=depth_avgpool,
+            params={"sensor_cfg": SceneEntityCfg("front_camera"), "pool": 4},
         )
         
 
