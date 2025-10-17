@@ -12,10 +12,10 @@ class G1Rewards(RewardsCfg):
     """Reward terms for the MDP."""
 
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_lin_vel_xy_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_ang_vel_z_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
@@ -120,5 +120,5 @@ class G1Rewards(RewardsCfg):
 
        
     body_lin_acc_l2 = RewTerm(func=mdp.body_lin_acc_l2, weight=-2.5e-7)   
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.0)              
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-0.005)              
         
