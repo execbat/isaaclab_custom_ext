@@ -4,6 +4,7 @@ from .custom_rewards_cfg import G1Rewards
 from .custom_commands_cfg import CommandsCfg
 from .custom_event_cfg import EventCfg
 from .custom_scene_cfg import SceneCfg
+from .terminations_cfg import TerminationsCfg
 
 class CustomLocomotionVelocityRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
     scene : SceneCfg = SceneCfg(num_envs=4096, env_spacing=2.5)
@@ -11,5 +12,6 @@ class CustomLocomotionVelocityRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
     rewards: G1Rewards = G1Rewards()
     commands: CommandsCfg = CommandsCfg()
     events: EventCfg = EventCfg()
+    terminations : TerminationsCfg  = TerminationsCfg()
 
 
