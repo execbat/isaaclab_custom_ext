@@ -288,4 +288,40 @@ def leg_pelvis_torso_coalignment_reward(
     denom = float(w_yaw + w_chain + w_upright)
     r = (w_yaw * yaw_align + w_chain * chain_align + w_upright * upright) / max(denom, 1e-6)
     return r.clamp(0.0, 1.0)
-   
+
+def idle_penalty(
+    env: "ManagerBasedRLEnv",
+    command_name: str = "base_velocity",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    min_cmd_speed: float = 0.10,        #m/s - we believe that this is "there is a command to go"
+    lin_speed_threshold: float = 0.05,  # m/s - we actually stand, if lower
+    scale: float = 1.0,                 # additional scale
+) -> torch.Tensor:
+    """
+    Penalty (>=0) for "stuck in place" when the movement command is noticeable,
+    and the base's linear velocity in the XY plane is low.
+
+    Returns: Tensor[num_envs] (non-negative). Set weight < 0 in the config.
+
+    Rule:
+    if ||cmd_xy|| > min_cmd_speed and ||v_xy|| < lin_speed_threshold,
+    penalty = scale * (min_cmd_speed - ||v_xy||)_+ , otherwise 0.
+    """
+    #actual base speed in LSC (XY)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    v_xy = asset.data.root_lin_vel_b[:, :2]                     # [N,2]
+    speed_xy = torch.linalg.norm(v_xy, dim=1)                   # [N]
+
+    # speed command (vx, vy, wz, ...)
+    cmd_xy = env.command_manager.get_command(command_name)[:, :2]  # [N,2]
+    cmd_speed = torch.linalg.norm(cmd_xy, dim=1)                   # [N]
+
+    # «есть команда ехать», но «почти стоим»
+    idle_mask = (cmd_speed > float(min_cmd_speed)) & (speed_xy < float(lin_speed_threshold))
+
+    # linear penalty for underspeeding
+    deficit = (float(min_cmd_speed) - speed_xy).clamp(min=0.0)
+
+    penalty = torch.zeros_like(speed_xy)
+    penalty[idle_mask] = float(scale) * deficit[idle_mask]
+    return penalty   
