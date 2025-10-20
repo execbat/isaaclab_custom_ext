@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     
 import math
 import isaaclab.utils.math as math_utils
-
+import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
 def feet_impact_vel(
     env,
@@ -324,4 +324,50 @@ def idle_penalty(
 
     penalty = torch.zeros_like(speed_xy)
     penalty[idle_mask] = float(scale) * deficit[idle_mask]
-    return penalty   
+    return penalty  
+    
+def track_lin_vel_xy_exp_custom(
+    env: ManagerBasedRLEnv, std: float, command_name: str, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"), DEBUG = False
+) -> torch.Tensor:
+    """Reward tracking of linear velocity commands (xy axes) using exponential kernel."""
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    # compute the error
+    lin_vel_error = torch.sum(
+        torch.square(env.command_manager.get_command(command_name)[:, :2] - asset.data.root_lin_vel_b[:, :2]),
+        dim=1,
+    )
+    r =  1.5 *torch.exp(-lin_vel_error / std**2)  -0.5
+    if DEBUG:
+        print(f'Linear CMD {env.command_manager.get_command(command_name)[:, :2]}')
+        print(f'Linear reward {r}')
+    return r
+    
+def track_ang_vel_z_exp_custom(
+    env: ManagerBasedRLEnv, std: float, command_name: str, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"), DEBUG = False
+) -> torch.Tensor:
+    """Reward tracking of angular velocity commands (yaw) using exponential kernel."""
+    # extract the used quantities (to enable type-hinting)
+    asset: RigidObject = env.scene[asset_cfg.name]
+    # compute the error
+    ang_vel_error = torch.square(env.command_manager.get_command(command_name)[:, 2] - asset.data.root_ang_vel_b[:, 2])
+    r = 1.5 * torch.exp(-ang_vel_error / std**2)  -0.5
+    if DEBUG:
+        print(f'Angular CMD {env.command_manager.get_command(command_name)[:, 2]}')
+        print(f'Angular reward {r}')
+    return r
+    
+def track_lin_ang_vel_exp_product(
+    env,
+    command_name: str = "base_velocity",
+    std: float = math.sqrt(0.25),
+) -> torch.Tensor:
+    """The product of r_lin * r_ang.
+    r_lin = track_lin_vel_xy_exp(...), r_ang = track_ang_vel_z_exp(...).
+    Both return (N,), and the result is also (N,). Range [0..1].
+    """
+    r_lin = mdp.track_lin_vel_xy_exp(env, command_name=command_name, std=std)
+    r_ang = mdp.track_ang_vel_z_exp(env, command_name=command_name, std=std)
+    res = r_lin * r_ang
+    #print(f'Tracking reward {res}, linear {r_lin}, angular {r_ang}')
+    return res         
