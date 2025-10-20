@@ -5,20 +5,20 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 import math
 
-from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_motion_penalty, lateral_slip_penalty, heading_alignment_reward, leg_pelvis_torso_coalignment_reward, idle_penalty, track_lin_ang_vel_exp_product
+from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_motion_penalty, lateral_slip_penalty, heading_alignment_reward, leg_pelvis_torso_coalignment_reward, idle_penalty, angvel_flat_l2_product
 
 @configclass
 class G1Rewards(RewardsCfg):
     """Reward terms for the MDP."""
 
 #    track_lin_vel_xy_exp = RewTerm(
-#        func=mdp.track_lin_vel_xy_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+#        func=mdp.track_lin_vel_xy_exp, weight=0.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
 #    )
 #    track_ang_vel_z_exp = RewTerm(
-#        func=mdp.track_ang_vel_z_exp, weight=4.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+#        func=mdp.track_ang_vel_z_exp, weight=0.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
 #    )
     track_vel_exp_product = RewTerm(
-        func=track_lin_ang_vel_exp_product,
+        func=angvel_flat_l2_product,
         weight=20.0,  
         params=dict(
             command_name="base_velocity",

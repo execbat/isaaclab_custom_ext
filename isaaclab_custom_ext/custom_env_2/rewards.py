@@ -357,17 +357,23 @@ def track_ang_vel_z_exp_custom(
         print(f'Angular reward {r}')
     return r
     
-def track_lin_ang_vel_exp_product(
-    env,
-    command_name: str = "base_velocity",
-    std: float = math.sqrt(0.25),
+def angvel_flat_l2_product(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """The product of r_lin * r_ang.
-    r_lin = track_lin_vel_xy_exp(...), r_ang = track_ang_vel_z_exp(...).
-    Both return (N,), and the result is also (N,). Range [0..1].
-    """
-    r_lin = mdp.track_lin_vel_xy_exp(env, command_name=command_name, std=std)
-    r_ang = mdp.track_ang_vel_z_exp(env, command_name=command_name, std=std)
-    res = r_lin * r_ang
-    #print(f'Tracking reward {res}, linear {r_lin}, angular {r_ang}')
-    return res         
+
+    asset: RigidObject = env.scene[asset_cfg.name]
+ 
+    ang_vel_error = torch.square(env.command_manager.get_command(command_name)[:, 2] - asset.data.root_ang_vel_b[:, 2])
+    ang_r = r =  torch.exp(-ang_vel_error / std**2) 
+    
+    lin_vel_error = torch.sum(
+        torch.square(env.command_manager.get_command(command_name)[:, :2] - asset.data.root_lin_vel_b[:, :2]),
+        dim=1,
+    )
+    lin_r =  torch.exp(-lin_vel_error / std**2) 
+    
+
+    return ang_r * lin_r
