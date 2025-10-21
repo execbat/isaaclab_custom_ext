@@ -1,10 +1,8 @@
 # isaaclab_custom_ext/custom_sensors/ray_caster_multimesh.py
 from __future__ import annotations
-
 import os
 import re
 from typing import List, Optional, Sequence, Tuple
-from contextlib import nullcontext
 
 import omni
 import torch
@@ -18,160 +16,451 @@ from isaaclab.sensors.ray_caster.ray_caster import RayCaster
 from isaaclab.sensors.ray_caster.ray_caster_cfg import RayCasterCfg
 from isaaclab.utils.configclass import configclass
 from isaaclab.utils.math import convert_quat, quat_apply, quat_apply_yaw
+import triton
+import triton.language as tl
+# ---------------------------------------------------------------------
+# Optional Triton (CUDA kernels). If not present, we’ll fallback.
+# ---------------------------------------------------------------------
+try:
+    import triton
+    import triton.language as tl
+    _HAS_TRITON = True
+except Exception:
+    _HAS_TRITON = False
 
 
-# --------------------------------------------------------------------------------------
-# utils
-# --------------------------------------------------------------------------------------
-def _select_batched_1d_on_M(x: torch.Tensor, idx_brk: torch.Tensor) -> torch.Tensor:
+def _ensure_triton_imports():
+    # чтобы не падать, если модуль ещё не импортирован
+    global triton, tl
+    import triton
+    import triton.language as tl
+    return triton, tl
+
+def _triton_const_i32(x: int) -> int:
+    # Triton constexpr передаются как Python-литералы / kwargs; просто возвращаем int
+    return int(x)
+
+def _as_torch_contig(x, dtype=None):
+    if dtype is not None and x.dtype != dtype:
+        x = x.to(dtype)
+    return x.contiguous()
+
+def _as_int32(x):
+    return _as_torch_contig(x, dtype=torch.int32)
+
+def _as_fp32(x):
+    return _as_torch_contig(x, dtype=torch.float32)
+
+def _as_fp16(x):
+    return _as_torch_contig(x, dtype=torch.float16)
+
+
+def _gather_candidates(self, Sxy: torch.Tensor, Dxy: torch.Tensor) -> torch.Tensor:
     """
-    Выбрать по оси M из x формы (B, M, C) с батч-индексами формы (B, Rb, K).
-    Возвращает (B, Rb, K, C). Не делает копий данных сверх необходимого.
+    Triton-ускоренный сбор кандидатов для каждого луча плитки:
+      вход: Sxy, Dxy формы (B, Rb, 2), dtype=float32/float16
+      выход: (B, Rb, K) long, значения в [0..M-1] или -1 (если меньше кандидатов)
+    Требует, чтобы self._grid был построен (см. _update_obstacles_and_grid).
     """
-    # x: (B, M, C)
-    # idx_brk: (B, Rb, K)  (int32/64)
-    B, M, C = x.shape
-    B2, Rb, K = idx_brk.shape
-    assert B2 == B, "batch size mismatch"
-    idx = idx_brk.to(dtype=torch.long)
+    # импорт ядра (лениво)
+    kernel = getattr(self, "_dda_kernel", None)
+    if kernel is None:
+        self._dda_kernel = _build_dda_kernel()
+        kernel = self._dda_kernel
 
-    # Расширяем вход до (B, Rb, K, M, C) и выбираем по dim=3
-    x_exp = x.unsqueeze(1).unsqueeze(2).expand(B, Rb, K, M, C)          # (B,Rb,K,M,C)
-    idx_exp = idx.unsqueeze(-1).unsqueeze(-1).expand(B, Rb, K, 1, C)    # (B,Rb,K,1,C)
-    out = torch.take_along_dim(x_exp, idx_exp, dim=3).squeeze(3)        # (B,Rb,K,C)
+    dev = Sxy.device
+    B, Rb, _ = Sxy.shape
+    N = B * Rb
+    K = int(self.cfg.kmax)
+
+    # Плоские буферы входа
+    Sx = _as_fp32(Sxy[..., 0].reshape(-1))
+    Sy = _as_fp32(Sxy[..., 1].reshape(-1))
+    Dx = _as_fp32(Dxy[..., 0].reshape(-1))
+    Dy = _as_fp32(Dxy[..., 1].reshape(-1))
+
+    # Для каждой строки (env в батче) сопоставим env_id
+    # Простой вариант: идём по порядку env-ов в текущем батче 0..B-1,
+    # но нам нужен их глобальный индекс в [0..E_total-1].
+    # В _update_buffers_impl мы вызываем для подмножества env_ids — они уже есть на CPU.
+    # Поэтому, чтобы не протягивать env_ids сюда каждый раз, закешируем их в self._curr_env_ids.
+    env_ids = getattr(self, "_curr_env_ids_tensor", None)
+    if env_ids is None or env_ids.numel() != B:
+        raise RuntimeError("[RayCasterMultiMesh] Internal: _curr_env_ids_tensor is not set or has wrong shape.")
+    env_ids = env_ids.to(device=dev, dtype=torch.int32)          # (B,)
+    env_id_flat = env_ids.view(B, 1).expand(B, Rb).reshape(-1)   # (N,) int32
+
+    # Грид-структуры
+    grid = self._grid
+    if grid is None or grid["cell_start"] is None:
+        raise RuntimeError("[RayCasterMultiMesh] Grid is not built.")
+
+    cell_start = _as_int32(grid["cell_start"].reshape(-1))   # (E*n_cells,)
+    cell_count = _as_int32(grid["cell_count"].reshape(-1))   # (E*n_cells,)
+    cell_items = _as_int32(grid["cell_items"].reshape(-1))   # (E*M,)
+    nx, ny = grid["shape"]
+    n_cells = int(nx * ny)
+    M = int(self._M)
+    origin = grid["origin"].to(device=dev, dtype=torch.float32)
+    cell_size = float(grid["cell"])
+
+    # Выход
+    out = torch.full((N, K), -1, device=dev, dtype=torch.int32)
+
+    # Запуск Triton
+    grid_1d = (N,)
+    self._dda_kernel[grid_1d](
+        Sx, Sy, Dx, Dy,
+        env_id_flat,
+        cell_start, cell_count,
+        cell_items,
+        n_cells, M,
+        origin[0].item(), origin[1].item(),
+        cell_size,
+        nx, ny,
+        out,
+        KMAX=_triton_const_i32(K),
+        DDA_STEPS=_triton_const_i32(int(self.cfg.dda_max_cells)),
+    )
+
+    # Приводим к (B,Rb,K) и к типу long; гарантируем диапазон [ -1 | 0..M-1 ]
+    out = out.view(B, Rb, K).to(torch.long)
+    out = torch.where(out >= 0, out.clamp_(0, M - 1), out)  # -1 оставляем как "пусто"
     return out
 
-def _autocast_ctx(enable: bool, dtype=torch.float16):
-    """Вернёт корректный autocast-контекст под любую версию torch. На CPU -> nullcontext()."""
-    if not enable or not torch.cuda.is_available():
-        return nullcontext()
-    # PyTorch >= 2.0
-    try:
-        return torch.amp.autocast("cuda", dtype=dtype)
-    except Exception:
-        # Старый API
-        return torch.cuda.amp.autocast(dtype=dtype)
+
+def _build_dda_kernel():
+    triton, tl = _ensure_triton_imports()
+
+    @triton.jit
+    def _dda_candidates_kernel(
+        Sx_ptr, Sy_ptr, Dx_ptr, Dy_ptr,          # (N,) float32 — старт/напр. лучей по XY
+        env_id_ptr,                               # (N,) int32   — id окружения для каждого луча
+        cell_start_ptr, cell_count_ptr,           # (E, n_cells) int32 → плоские буферы
+        cell_items_ptr,                           # (E, M) int32 → плоский буфер
+        n_cells, M,                               # int32        — количество ячеек и препятствий на env
+        origin_x, origin_y,                       # float32      — начало сетки
+        cell_size,                                # float32      — размер ячейки
+        nx, ny,                                   # int32        — размер сетки по осям
+        out_cand_ptr,                             # (N, KMAX) int32 — выход
+        KMAX: tl.constexpr,                       # compile-time
+        DDA_STEPS: tl.constexpr,                  # compile-time
+    ):
+        pid = tl.program_id(0)  # 0..N-1
+
+        # вход
+        Sx = tl.load(Sx_ptr + pid)
+        Sy = tl.load(Sy_ptr + pid)
+        Dx = tl.load(Dx_ptr + pid)
+        Dy = tl.load(Dy_ptr + pid)
+        e  = tl.load(env_id_ptr + pid).to(tl.int32)
+
+        # нормировка направления
+        inv_len = tl.rsqrt(Dx * Dx + Dy * Dy + 1e-12)
+        Dx = Dx * inv_len
+        Dy = Dy * inv_len
+
+        # начальная ячейка
+        fx = (Sx - origin_x) / cell_size
+        fy = (Sy - origin_y) / cell_size
+        ix = tl.astype(tl.math.floor(fx), tl.int32)
+        iy = tl.astype(tl.math.floor(fy), tl.int32)
+        ix = tl.minimum(tl.maximum(ix, 0), nx - 1)
+        iy = tl.minimum(tl.maximum(iy, 0), ny - 1)
+
+        # шаги/границы DDA
+        step_x = tl.where(Dx >= 0.0, 1, -1)
+        step_y = tl.where(Dy >= 0.0, 1, -1)
+
+        cell_x = origin_x + (tl.astype(ix, tl.float32) + tl.where(Dx >= 0.0, 1.0, 0.0)) * cell_size
+        cell_y = origin_y + (tl.astype(iy, tl.float32) + tl.where(Dy >= 0.0, 1.0, 0.0)) * cell_size
+
+        t_max_x = tl.where(Dx != 0.0, (cell_x - Sx) / Dx, 1e30)
+        t_max_y = tl.where(Dy != 0.0, (cell_y - Sy) / Dy, 1e30)
+        t_delta_x = tl.where(Dx != 0.0, cell_size / tl.abs(Dx), 1e30)
+        t_delta_y = tl.where(Dy != 0.0, cell_size / tl.abs(Dy), 1e30)
+
+        # выходной буфер кандидатов
+        out_row = out_cand_ptr + pid * KMAX
+        # инициализация -1
+        for k in range(KMAX):
+            tl.store(out_row + k, tl.full((), -1, tl.int32))
+        out_count = tl.zeros((), tl.int32)
+
+        # базовые офсеты для CSR по окружению e
+        cs_base = e * n_cells
+        it_base = e * M
+
+        # DDA
+        for _ in range(DDA_STEPS):
+            ix = tl.minimum(tl.maximum(ix, 0), nx - 1)
+            iy = tl.minimum(tl.maximum(iy, 0), ny - 1)
+            cid = iy * nx + ix
+
+            cs = tl.load(cell_start_ptr + cs_base + cid)
+            cc = tl.load(cell_count_ptr + cs_base + cid)
+
+            i = tl.zeros((), tl.int32)
+            while (i < cc) & (out_count < KMAX):
+                itm = tl.load(cell_items_ptr + it_base + cs + i)
+                if itm >= 0:
+                    tl.store(out_row + out_count, itm)
+                    out_count += 1
+                i += 1
+
+            do_x = t_max_x <= t_max_y
+            ix += tl.where(do_x, step_x, 0)
+            iy += tl.where(do_x, 0,      step_y)
+            t_max_x = tl.where(do_x, t_max_x + t_delta_x, t_max_x)
+            t_max_y = tl.where(do_x, t_max_y,              t_max_y + t_delta_y)
+
+            if out_count >= KMAX:
+                break
+
+    return _dda_candidates_kernel
 
 
+# ---------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------
+@configclass
+class RayCasterMultiMeshCfg(RayCasterCfg):
+    # geometry (must)
+    cylinder_radius: float = 0.4
+    cylinder_height: float = 1.2
+
+    # perf
+    use_fp16: bool = True           # AMP on CUDA
+    block_R: int = 1024             # rays per tile (narrow-phase kernel launch size)
+    kmax: int = 8                   # candidates per ray after broad phase
+    dda_max_cells: int = 48         # DDA steps cap
+
+    # grid
+    grid_cell: float = 0.9          # ~ 2*r (or larger)
+    grid_pad: float  = 2.0          # padding (cells)
+
+    # regrid sensitivity (in cells)
+    regrid_trigger_cells: float = 1.0
+
+
+# ---------------------------------------------------------------------
+# Utils
+# ---------------------------------------------------------------------
 def _torch_device(dev) -> torch.device:
     return dev if isinstance(dev, torch.device) else torch.device(dev)
 
+def _collect_env0_obst_slots() -> List[str]:
+    stage = omni.usd.get_context().get_stage()
+    pat = re.compile(r".*/envs/env_0/obst_\d+$")
+    out: List[str] = []
+    for prim in Usd.PrimRange(stage.GetPseudoRoot()):
+        if prim.IsValid():
+            p = prim.GetPath().pathString
+            if pat.match(p):
+                out.append(p)
+    out.sort()
+    return out
 
 def _quat_to_axes_wxyz(q: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Быстро получить ортонормальные оси (u,v,w) из юнит-кватерниона (w,x,y,z).
-    Возвращает тензоры формы (...,3) — столбцы матрицы вращения.
-    """
+    # returns column vectors u,v,w of rotation matrix from unit quat (wxyz)
     w, x, y, z = q.unbind(-1)
     ww = w*w; xx = x*x; yy = y*y; zz = z*z
     wx = w*x; wy = w*y; wz = w*z
     xy = x*y; xz = x*z; yz = y*z
-    # u, v, w — столбцы R
     u = torch.stack([1 - 2*(yy + zz), 2*(xy + wz),       2*(xz - wy)], dim=-1)
     v = torch.stack([2*(xy - wz),     1 - 2*(xx + zz),   2*(yz + wx)], dim=-1)
     w_ = torch.stack([2*(xz + wy),    2*(yz - wx),       1 - 2*(xx + yy)], dim=-1)
     return u, v, w_
 
 
-# --------------------------------------------------------------------------------------
-# config
-# --------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# Triton kernels
+# ---------------------------------------------------------------------
+if _HAS_TRITON:
 
-@configclass
-class RayCasterMultiMeshCfg(RayCasterCfg):
-    # Геометрия цилиндров (обязательно)
-    cylinder_radius: float = 0.4
-    cylinder_height: float = 1.2
+    
 
-    # Производительность / память
-    use_fp16: bool = True
+    @triton.jit
+    def _narrow_phase_kernel(
+        # rays (B*Rb)
+        S_ptr, D_ptr,                                  # float16/32, shape (N, 3)
+        # candidates per ray
+        cand_ptr,                                      # int32, shape (N, K)
+        # obstacles per env (already per-ray env-aligned views!)
+        C_ptr, U_ptr, V_ptr, W_ptr,                   # float16/32, shape (N, M, 3) logically but we gather by cands
+        M: tl.constexpr, K: tl.constexpr,
+        # cylinder geom
+        radius, half_h, max_d,
+        # outputs
+        out_ptr,                                      # float32, shape (N, 3)
+        # sizes
+        N: tl.constexpr
+    ):
+        pid = tl.program_id(0)
+        if pid >= N:
+            return
 
-    # Широкая фаза: равномерная сетка по XY + DDA
-    grid_cell: float = 0.9     # ≈ 2*r + запас
-    grid_pad: float  = 2.0     # запас по краю (в клетках ~ grid_pad*cell)
-    dda_max_cells: int = 32    # макс. шагов DDA вдоль луча
-    kmax: int = 4             # макс. кандидатов-препятствий на луч после широкофазы
+        # load S, D
+        Sx = tl.load(S_ptr + pid*3 + 0)
+        Sy = tl.load(S_ptr + pid*3 + 1)
+        Sz = tl.load(S_ptr + pid*3 + 2)
+        Dx = tl.load(D_ptr + pid*3 + 0)
+        Dy = tl.load(D_ptr + pid*3 + 1)
+        Dz = tl.load(D_ptr + pid*3 + 2)
+        invn = tl.rsqrt(tl.maximum(Dx*Dx + Dy*Dy + Dz*Dz, 1e-16))
+        Dx *= invn; Dy *= invn; Dz *= invn
 
-    # Тайлинг
-    block_R: int = 256         # лучей на плитку
-    block_B: int = 128          # энвов на плитку (обычно можно не трогать)
+        best_t = 1e30
+        # iterate over K candidates
+        for j in tl.static_range(0, K):
+            idx = tl.load(cand_ptr + pid*K + j)
+            if (idx < 0) | (idx >= M):
+                continue
+            # gather cylinder center/axes
+            Cx = tl.load(C_ptr + pid*M*3 + idx*3 + 0)
+            Cy = tl.load(C_ptr + pid*M*3 + idx*3 + 1)
+            Cz = tl.load(C_ptr + pid*M*3 + idx*3 + 2)
+
+            Ux = tl.load(U_ptr + pid*M*3 + idx*3 + 0)
+            Uy = tl.load(U_ptr + pid*M*3 + idx*3 + 1)
+            Uz = tl.load(U_ptr + pid*M*3 + idx*3 + 2)
+
+            Vx = tl.load(V_ptr + pid*M*3 + idx*3 + 0)
+            Vy = tl.load(V_ptr + pid*M*3 + idx*3 + 1)
+            Vz = tl.load(V_ptr + pid*M*3 + idx*3 + 2)
+
+            Wx = tl.load(W_ptr + pid*M*3 + idx*3 + 0)
+            Wy = tl.load(W_ptr + pid*M*3 + idx*3 + 1)
+            Wz = tl.load(W_ptr + pid*M*3 + idx*3 + 2)
+
+            # S_rel = S - C
+            Rx = Sx - Cx
+            Ry = Sy - Cy
+            Rz = Sz - Cz
+
+            # projections (Su,Sv,Sw) = dot(S_rel, U/V/W)
+            Su = Rx*Ux + Ry*Uy + Rz*Uz
+            Sv = Rx*Vx + Ry*Vy + Rz*Vz
+            Sw = Rx*Wx + Ry*Wy + Rz*Wz
+            Du = Dx*Ux + Dy*Uy + Dz*Uz
+            Dv = Dx*Vx + Dy*Vy + Dz*Vz
+            Dw = Dx*Wx + Dy*Wy + Dz*Wz
+
+            # side quad: (Su + t Du)^2 + (Sv + t Dv)^2 = r^2
+            a = Du*Du + Dv*Dv
+            b = 2.0*(Su*Du + Sv*Dv)
+            c = Su*Su + Sv*Sv - radius*radius
+            a = tl.where(tl.abs(a) < 1e-12, 1e-12, a)
+            disc = b*b - 4.0*a*c
+
+            t_side = 1e30
+            if disc >= 0.0:
+                sdisc = tl.sqrt(disc)
+                t1 = (-b - sdisc) / (2.0*a)
+                t2 = (-b + sdisc) / (2.0*a)
+                t1 = tl.where(t1 > 0.0, t1, 1e30)
+                t2 = tl.where(t2 > 0.0, t2, 1e30)
+                z1 = Sw + t1*Dw
+                z2 = Sw + t2*Dw
+                in1 = (z1 >= -half_h) & (z1 <= half_h)
+                in2 = (z2 >= -half_h) & (z2 <= half_h)
+                t_side = tl.minimum(tl.where(in1, t1, 1e30), tl.where(in2, t2, 1e30))
+
+            # caps
+            Dw_safe = tl.where(tl.abs(Dw) < 1e-12, tl.copysign(1e-12, Dw), Dw)
+            tt = ( half_h - Sw) / Dw_safe
+            tb = (-half_h - Sw) / Dw_safe
+            tt = tl.where(tt > 0.0, tt, 1e30)
+            tb = tl.where(tb > 0.0, tb, 1e30)
+            in_top = (Su + tt*Du)*(Su + tt*Du) + (Sv + tt*Dv)*(Sv + tt*Dv) <= radius*radius
+            in_bot = (Su + tb*Du)*(Su + tb*Du) + (Sv + tb*Dv)*(Sv + tb*Dv) <= radius*radius
+            t_caps = tl.minimum(tl.where(in_top, tt, 1e30), tl.where(in_bot, tb, 1e30))
+
+            t = tl.minimum(t_side, t_caps)
+            t = tl.where(t <= max_d, t, 1e30)
+            best_t = tl.minimum(best_t, t)
+
+        # write world hit = S + best_t * D  (float32)
+        Px = (Sx + best_t*Dx).to(tl.float32)
+        Py = (Sy + best_t*Dy).to(tl.float32)
+        Pz = (Sz + best_t*Dz).to(tl.float32)
+        tl.store(out_ptr + pid*3 + 0, Px)
+        tl.store(out_ptr + pid*3 + 1, Py)
+        tl.store(out_ptr + pid*3 + 2, Pz)
 
 
-# --------------------------------------------------------------------------------------
-# main class
-# --------------------------------------------------------------------------------------
-
+# ---------------------------------------------------------------------
+# Main class
+# ---------------------------------------------------------------------
 class RayCasterMultiMesh(RayCaster):
     """
-    Полностью векторный LIDAR по множеству **наклонных** цилиндров (obst_XX) на окружение.
-
-    Архитектура:
-    - Один PhysX RigidBodyView по '/.../envs/env_*/obst_*' → разом читаем (E,M,7).
-    - Широкая фаза: 2D grid (XY) + DDA → на луч отбираем до K кандидатов, а не все M.
-    - Узкая фаза: аналитическое пересечение луч–наклонный цилиндр (радиус/высота из cfg).
-    - Всё — тензорно, без питон-циклов по M/R; только фиксированное число DDA-шагов и тайлинг по R.
+    CUDA (Triton) ray caster for many tilted cylinders per env:
+      * single PhysX view for '/.../envs/env_*/obst_*'
+      * GPU CSR grid + DDA broad-phase (kernel)
+      * Narrow-phase analytic intersection (kernel)
+      * Fully batched, tiled by rays; AMP/FP16 enabled
     """
-
-    # ----------------------------------
-    # init
-    # ----------------------------------
 
     def _initialize_warp_meshes(self):
         log = omni.log
 
-        # Найдём конкретные слоты '/envs/env_0/obst_XX' — от них определим M и префикс
-        self._slots_env0: List[str] = self._collect_env0_obst_slots()
-        if len(self._slots_env0) == 0:
+        slots = _collect_env0_obst_slots()
+        if len(slots) == 0:
             raise RuntimeError(
                 "[RayCasterMultiMesh] No '/envs/env_0/obst_XX' found. "
-                "Ensure obstacles exist and are named '.../envs/env_#/obst_##'."
+                "Ensure obstacles '.../envs/env_#/obst_##' exist."
             )
-        self._M: int = len(self._slots_env0)
+        self._M = len(slots)
 
-        # Глоб-маска (без регэкспов!) для PhysX RigidBodyView: '/.../envs/env_*/obst_*'
-        prefix = self._slots_env0[0].split("/envs/env_0")[0]
-        self._rb_glob_pattern: str = f"{prefix}/envs/env_*/obst_*"
+        # glob pattern for PhysX view (no regex)
+        prefix = slots[0].split("/envs/env_0")[0]
+        self._rb_glob_pattern = f"{prefix}/envs/env_*/obst_*"
 
-        # Геометрия цилиндров обязательна
+        # geometry
         r = getattr(self.cfg, "cylinder_radius", None)
         h = getattr(self.cfg, "cylinder_height", None)
         if r is None or h is None:
             raise RuntimeError(
                 "[RayCasterMultiMesh] Please set cfg.cylinder_radius and cfg.cylinder_height (e.g., 0.4 / 1.2)."
             )
-        self._cyl_radius: float = float(r)
-        self._cyl_height: float = float(h)
+        self._cyl_radius = float(r)
+        self._cyl_height = float(h)
 
-        # Флаги/тайлинг
-        self._use_fp16: bool = bool(getattr(self.cfg, "use_fp16", True))
-        self._block_R: int = int(getattr(self.cfg, "block_R", 512))
-        self._block_B: int = int(getattr(self.cfg, "block_B", 64))
+        # perf flags
+        self._use_fp16 = bool(getattr(self.cfg, "use_fp16", True))
+        self._block_R = int(getattr(self.cfg, "block_R", 1024))
+        self._kmax = int(getattr(self.cfg, "kmax", 8))
+        self._dda_max = int(getattr(self.cfg, "dda_max_cells", 48))
 
-        # Device
+        # grid params
+        self._grid_cell = float(getattr(self.cfg, "grid_cell", 0.9))
+        self._grid_pad = float(getattr(self.cfg, "grid_pad", 2.0))
+        self._regrid_cells = float(getattr(self.cfg, "regrid_trigger_cells", 1.0))
+
+        # device
         self._torch_device: torch.device = _torch_device(self.device)
 
-        # Лениво создадим PhysX view
+        # lazy PhysX view
         self._rb_view_all: Optional[physx.RigidBodyView] = None
         self._E_total: Optional[int] = None
 
-        # Буферы широкой фазы (создадим позже)
-        self._grid = None  # словарь с полями: Cx, Cy, cell_start, cell_count, cell_items, shape, origin, cell
+        # grid buffers
+        self._grid = None   # dict with: origin(2), cell(float), shape(nx,ny), cell_start(E,nc), cell_count(E,nc), cell_items(E,M)
+        self._grid_dirty = True
+        self._last_grid_origin = None
 
-        # Кэш поз и осей для узкой фазы (float32)
+        # cached obstacles (E,M,3) fp16/32
         self._C_all = None
-        self._u_all = None
-        self._v_all = None
-        self._w_all = None
+        self._U_all = None
+        self._V_all = None
+        self._W_all = None
 
-        # Флаг: нужно ли перестраивать решётку (например, при первых шагах или больших сдвигах сцены)
-        self._grid_dirty: bool = False
-
-        # PhysX SimulationView
+        # PhysX sim view
         if not hasattr(self, "_physics_sim_view"):
             from isaacsim.core.simulation_manager import SimulationManager
             self._physics_sim_view = SimulationManager.get_physics_sim_view()
 
-        # Включим TF32/alloc конфиги для стабильности и снижения фрагментации
+        # cuda knobs
         try:
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
@@ -179,25 +468,12 @@ class RayCasterMultiMesh(RayCaster):
             pass
         os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
+        engine = "triton" if _HAS_TRITON and torch.cuda.is_available() else "torch"
         log.info(
-            f"[RayCasterMultiMesh] Tilted-cylinder analytic LIDAR. "
-            f"M={self._M}, pattern='{self._rb_glob_pattern}', "
-            f"r={self._cyl_radius:.3f}, h={self._cyl_height:.3f}, "
-            f"fp16={self._use_fp16}, block_R={self._block_R}, block_B={self._block_B}."
+            f"[RayCasterMultiMesh] CUDA LIDAR ({engine}). "
+            f"M={self._M}, r={self._cyl_radius:.3f}, h={self._cyl_height:.3f}, "
+            f"kmax={self._kmax}, block_R={self._block_R}, dda_max={self._dda_max}."
         )
-
-    def _collect_env0_obst_slots(self) -> List[str]:
-        """Вернёт XForm-примы препятствий под /envs/env_0: .../envs/env_0/obst_\\d+$"""
-        stage = omni.usd.get_context().get_stage()
-        pat = re.compile(r".*/envs/env_0/obst_\d+$")
-        out: List[str] = []
-        for prim in Usd.PrimRange(stage.GetPseudoRoot()):
-            if prim.IsValid():
-                p = prim.GetPath().pathString
-                if pat.match(p):
-                    out.append(p)
-        out.sort()
-        return out
 
     def _ensure_rb_view(self):
         if self._rb_view_all is not None:
@@ -210,196 +486,123 @@ class RayCasterMultiMesh(RayCaster):
             )
         if view.count % self._M != 0:
             omni.log.warn(
-                f"[RayCasterMultiMesh] RigidBodyView count ({view.count}) not divisible by M ({self._M}). "
-                "Floor-dividing; misalignment possible if obstacles missing."
+                f"[RayCasterMultiMesh] RigidBodyView count ({view.count}) not divisible by M ({self._M})."
             )
         self._E_total = view.count // self._M
 
-    def _ensure_grid_buffers(self):
+    def _ensure_grid(self):
         if self._grid is not None:
             return
         E, M = self._E_total, self._M
         dev = self._torch_device
-        self._grid = {
-            "Cx": torch.empty((E, M), device=dev, dtype=torch.float32),
-            "Cy": torch.empty((E, M), device=dev, dtype=torch.float32),
-            "cell_start": None,   # (E, n_cells) int32
-            "cell_count": None,   # (E, n_cells) int32
-            "cell_items": None,   # (E, nnz)     int32 (значения индексов препятствий)
-            "shape": None,        # (nx, ny)
-            "origin": None,       # (2,)
-            "cell": None          # float
-        }
+        self._grid = dict(
+            origin=torch.zeros(2, device=dev, dtype=torch.float32),
+            cell=float(self._grid_cell),
+            shape=(1, 1),
+            cell_start=torch.empty((E, 1), device=dev, dtype=torch.int32),
+            cell_count=torch.empty((E, 1), device=dev, dtype=torch.int32),
+            cell_items=torch.full((E, M), -1, device=dev, dtype=torch.int32),  # CSR payload space
+        )
 
-    # ----------------------------------
-    # grid build / update
-    # ----------------------------------
-
+    # ---------------- grid + obstacles ----------------
     def _update_obstacles_and_grid(self, force_regrid: bool = False):
         """
         Читает позы всех препятствий (E,M,7), кэширует центры/оси.
-        При необходимости перестраивает сетку для широкой фазы.
+        При необходимости перестраивает сетку для широкой фазы (CSR).
         """
         self._ensure_rb_view()
-        self._ensure_grid_buffers()
-
+        self._ensure_grid()
         dev = self._torch_device
 
-        tf_all = self._rb_view_all.get_transforms().to(device=dev, dtype=torch.float32)  # (E*M,7)
+        # ---- прочитать трансформы препятствий ----
+        tf_all = self._rb_view_all.get_transforms().to(device=dev, dtype=torch.float32)  # (E*M, 7)
         tf_all = tf_all.view(self._E_total, self._M, 7)
+        C = tf_all[..., 0:3]                          # (E,M,3)
+        q = convert_quat(tf_all[..., 3:7], to="wxyz") # (E,M,4)
+        u, v, w_axis = _quat_to_axes_wxyz(q)          # (E,M,3) * 3
 
-        C = tf_all[..., :3]                                    # (E,M,3)
-        q = convert_quat(tf_all[..., 3:7], to="wxyz")          # (E,M,4)
-        u, v, w_axis = _quat_to_axes_wxyz(q)                   # (E,M,3) * 3
+        # кэш (полупрецизионный при необходимости)
+        want_half = self._use_fp16 and torch.cuda.is_available()
+        dtype_cache = torch.float16 if want_half else torch.float32
+        self._C_all = C.to(dtype_cache)
+        self._U_all = u.to(dtype_cache)
+        self._V_all = v.to(dtype_cache)
+        self._W_all = w_axis.to(dtype_cache)
 
-        # кэш узкой фазы (float32)
-        self._C_all = C
-        self._u_all = u
-        self._v_all = v
-        self._w_all = w_axis
+        # ---- bbox для решётки ----
+        Cx = C[..., 0]
+        Cy = C[..., 1]
 
-        # Обновим XY центров для решётки
-        self._grid["Cx"].copy_(C[..., 0])
-        self._grid["Cy"].copy_(C[..., 1])
-
-        if not (self._grid_dirty or force_regrid):
-            return
-
-        # === построение равномерной сетки по всем env (общий bbox) ===
-        cell = float(self.cfg.grid_cell)
-        Cx = self._grid["Cx"];  Cy = self._grid["Cy"]
-
-        xmin = torch.min(Cx) - self.cfg.grid_pad * cell
-        xmax = torch.max(Cx) + self.cfg.grid_pad * cell
-        ymin = torch.min(Cy) - self.cfg.grid_pad * cell
-        ymax = torch.max(Cy) + self.cfg.grid_pad * cell
-
-        nx = torch.clamp(((xmax - xmin) / cell).ceil().to(torch.int32), min=1)
-        ny = torch.clamp(((ymax - ymin) / cell).ceil().to(torch.int32), min=1)
-        n_cells = int((nx * ny).item())
-
+        cell = float(self._grid_cell)
+        xmin = torch.min(Cx) - self._grid_pad * cell
+        xmax = torch.max(Cx) + self._grid_pad * cell
+        ymin = torch.min(Cy) - self._grid_pad * cell
+        ymax = torch.max(Cy) + self._grid_pad * cell
+    
         origin = torch.stack([xmin, ymin]).to(device=dev, dtype=torch.float32)
-        self._grid["origin"] = origin
-        self._grid["shape"]  = (int(nx.item()), int(ny.item()))
-        self._grid["cell"]   = cell
+        nx = int(torch.clamp(((xmax - xmin) / cell).ceil(), min=1).item())
+        ny = int(torch.clamp(((ymax - ymin) / cell).ceil(), min=1).item())
+        n_cells = nx * ny
 
-        # === Раскладываем препятствия по клеткам, строим CSR (тензорно) ===
-        ix = ((Cx - origin[0]) / cell).floor().to(torch.int32).clamp(0, nx-1)   # (E,M)
-        iy = ((Cy - origin[1]) / cell).floor().to(torch.int32).clamp(0, ny-1)   # (E,M)
-        cid_int32 = (iy * nx + ix)                                              # (E,M) в [0..n_cells)
-        cid_long  = cid_int32.to(torch.long)                                    # индексы для gather/scatter
+        # редко перестраиваем сетку, если сдвиг небольшой
+        if (not force_regrid) and (self._last_grid_origin is not None):
+            delta_cells = torch.max(torch.abs((origin - self._last_grid_origin) / cell)).item()
+            if delta_cells < self.cfg.regrid_trigger_cells and self._grid["cell_start"].shape[1] == n_cells:
+                return
 
+        self._last_grid_origin = origin.clone()
+
+        # ---- рассадка препятствий по клеткам, построение CSR ----
+        ix = ((Cx - origin[0]) / cell).floor().to(torch.int64).clamp(0, nx - 1)  # (E,M) long
+        iy = ((Cy - origin[1]) / cell).floor().to(torch.int64).clamp(0, ny - 1)  # (E,M) long
+        cid = (iy * nx + ix).to(torch.int64)                                     # (E,M) long  [0..n_cells)
+
+        # counts per cell
         cell_count = torch.zeros((self._E_total, n_cells), device=dev, dtype=torch.int32)
-        # scatter_add_: индексы должны быть long
-        cell_count.scatter_add_(1, cid_long, torch.ones_like(cid_long, dtype=torch.int32))   # (E, n_cells)
+        cell_count.scatter_add_(1, cid, torch.ones_like(cid, dtype=torch.int32))   # индексы long — ок
 
+        # exclusive prefix-sum -> starts
         cell_start = torch.zeros_like(cell_count)
         torch.cumsum(cell_count, dim=1, out=cell_start)
-        cell_start -= cell_count                                                # эксклюзивный префикс-сумма
+        cell_start -= cell_count
 
-        # у каждого env сумма count == M → nnz = M
-        nnz = int(cell_count.sum(dim=1).max().item())
-        cell_items = torch.full((self._E_total, nnz), -1, device=dev, dtype=torch.int32)
+        # payload: ровно M записей на окружение
+        cell_items = torch.full((self._E_total, self._M), -1, device=dev, dtype=torch.int32)
 
-        # заполним cell_items без питон-циклов:
-        ones = torch.ones_like(cid_long, dtype=torch.int32)
-        write_pos = cell_start.clone()                                          # (E, n_cells) int32
+        # позиции записи (будем инкрементировать)
+        write_pos = cell_start.clone()  # (E, n_cells) int32
 
-        # ВАЖНО: gather требует long индексы
-        offs_int32 = torch.gather(write_pos, 1, cid_long)                       # (E, M) int32
-        offs = offs_int32.to(torch.long)                                        # индексы -> long
+        # offsets для каждой записи (E,M) — ВАЖНО: индексы long
+        offs_int32 = torch.gather(write_pos, 1, cid)               # (E,M) int32
+        offs = offs_int32.to(torch.int64)                          # -> long для scatter_
 
-        # увеличиваем write_pos: scatter_add_ с long-индексами
-        write_pos.scatter_add_(1, cid_long, ones)
-
-        item_ids = torch.arange(self._M, device=dev, dtype=torch.int32).unsqueeze(0).expand_as(cid_int32)
-        # scatter_: индексы long
-        cell_items.scatter_(1, offs, item_ids)
-
-        self._grid["cell_start"] = cell_start        # int32
-        self._grid["cell_count"] = cell_count        # int32
-        self._grid["cell_items"] = cell_items        # int32
-
-        self._grid_dirty = False
-
-
-    # ----------------------------------
-    # DDA broad-phase
-    # ----------------------------------
-
-    def _gather_candidates(self, Sxy: torch.Tensor, Dxy: torch.Tensor) -> torch.Tensor:
-        """
-        Вернуть индексы кандидатов препятствий per-ray: (B, Rb, K) long в диапазоне [0, M-1].
-
-        Ожидается, что грид уже подготовлен в self._grid_*:
-          - self._grid_items:    (B, n_cells, Lmax) int32  — индексы препятствий в ячейке или -1
-          - self._grid_offsets:  (B, n_cells+1)    int32   — эксклюзивные смещения (если используете CSR)
-          - self._grid_ids:      (B, Rb)           int32   — id целевой ячейки для каждого луча (если уже посчитан)
-          - self._M:             int               — число препятствий на env
-
-        Если у вас другой лэйаут грид-структур — адаптируйте внутри, но на выходе дайте (B,Rb,K) long [0..M-1].
-        """
-        device = Sxy.device
-        B, Rb, _ = Sxy.shape
-        M = int(self._M)
-        K = int(getattr(self, "_K_per_ray", 8))   # число кандидатов на луч; можете выставить где-то в init
-
-        # ---- пример отбора из (B, n_cells, Lmax) по готовым id ячеек ----
-        # Если у вас уже есть id ячейки для каждого луча:
-        if hasattr(self, "_grid_ids") and self._grid_ids is not None:
-            # cell_ids: (B, Rb) в диапазоне [0, n_cells-1]
-            cell_ids = self._grid_ids.to(device=device, dtype=torch.long)
-            items = self._grid_items.to(device=device)           # (B, n_cells, Lmax) int32
-            B2, n_cells, Lmax = items.shape
-            assert B2 == B, "grid batch mismatch"
+        # инкремент позиций записи
+        write_pos.scatter_add_(1, cid, torch.ones_like(cid, dtype=torch.int32))
     
-            # Вытащим по лучам список (до Lmax) индексов препятствий
-            items_brl = torch.take_along_dim(
-                items, cell_ids.unsqueeze(-1).unsqueeze(-1).expand(B, Rb, 1, Lmax), dim=1
-            ).squeeze(1)  # (B, Rb, Lmax), int32, -1 = пусто
+        # сами id препятствий
+        item_ids = torch.arange(self._M, device=dev, dtype=torch.int32).unsqueeze(0).expand_as(cid)
 
-            # Уберём -1, заполним паддингом 0 и обрежем до K
-            valid = items_brl >= 0
-            # если в строке меньше K валидных — добираем нулями (они валидны, но будут редко выигрывать)
-            # Соберём топ-K валидов просто по маске: сначала валидные, потом паддинг
-            pad = torch.zeros_like(items_brl)
-            packed = torch.where(valid, items_brl, pad)  # (B,Rb,Lmax)
-            # Возьмём первые K
-            if Lmax >= K:
-                cand = packed[..., :K]
-            else:
-                # допаддим нулями до K
-                need = K - Lmax
-                cand = torch.cat([packed, torch.zeros(B, Rb, need, device=device, dtype=packed.dtype)], dim=-1)
+        # запись в payload; индексы должны быть long
+        # (offs гарантированно < M, но на всякий случай ограничим)
+        cell_items.scatter_(1, offs.clamp_max(self._M - 1), item_ids)
 
-            return cand.to(torch.long).clamp_(0, M - 1)
+        # ---- commit в структуру гридов ----
+        self._grid["origin"] = origin
+        self._grid["cell"] = cell
+        self._grid["shape"] = (nx, ny)
+        self._grid["cell_start"] = cell_start          # (E, n_cells) int32
+        self._grid["cell_count"] = cell_count          # (E, n_cells) int32
+        self._grid["cell_items"] = cell_items          # (E, M) int32
 
-        # ---- запасной вариант: если ячейки не готовы — просто вернём первые K препятствий (векторно) ----
-        cand = torch.arange(min(M, K), device=device).view(1, 1, -1).expand(B, Rb, -1)  # (B,Rb,K)
-        if K > M:
-            # допаддинг нулями
-            pad = torch.zeros(B, Rb, K - M, device=device, dtype=cand.dtype)
-            cand = torch.cat([cand, pad], dim=-1)
-        return cand.to(torch.long)
-
-    # ----------------------------------
-    # update (vector)
-    # ----------------------------------
-
+    # ---------------- main update ----------------
     @torch.no_grad()
     def _update_buffers_impl(self, env_ids: Sequence[int]):
-        """
-        Полностью тензорное обновление:
-          1) читаем позы препятствий и (по необходимости) перестраиваем сетку;
-          2) собираем кандидатов по DDA;
-          3) узкая фаза: аналитика луч–наклонный цилиндр по кандидатам;
-          4) пишем best hits в буфер сенсора.
-        """
-        device = self._torch_device
-        cuda_ok = (device.type == "cuda" and torch.cuda.is_available())
+
+        dev = self._torch_device
+        cuda_ok = (dev.type == "cuda" and torch.cuda.is_available())
         use_amp = bool(self._use_fp16 and cuda_ok)
 
-        # === 1) позы сенсора (как в базовом RayCaster) ===
+        # --- sensor pose (same as base) ---
         if isinstance(self._view, _XFormPrim):
             pos_w, quat_w = self._view.get_world_poses(env_ids)
         elif isinstance(self._view, physx.ArticulationView):
@@ -417,145 +620,203 @@ class RayCasterMultiMesh(RayCaster):
         pos_w = pos_w.clone()
         quat_w = quat_w.clone()
         pos_w += self.drift[env_ids]
-
         self._data.pos_w[env_ids] = pos_w
         self._data.quat_w[env_ids] = quat_w
 
-        # === выравнивание лучей ===
+        # ray alignment
         if self.cfg.attach_yaw_only is not None:
             self.cfg.ray_alignment = "yaw" if self.cfg.attach_yaw_only else "base"
 
         if self.cfg.ray_alignment == "world":
             pos_w[:, 0:2] += self.ray_cast_drift[env_ids, 0:2]
             ray_starts_w = self.ray_starts[env_ids] + pos_w.unsqueeze(1)
-            ray_dirs_w   = self.ray_directions[env_ids]
+            ray_dirs_w = self.ray_directions[env_ids]
         elif self.cfg.ray_alignment == "yaw":
             pos_w[:, 0:2] += quat_apply_yaw(quat_w, self.ray_cast_drift[env_ids])[:, 0:2]
-            ray_starts_w  = quat_apply_yaw(quat_w.repeat(1, self.num_rays), self.ray_starts[env_ids])
+            ray_starts_w = quat_apply_yaw(quat_w.repeat(1, self.num_rays), self.ray_starts[env_ids])
             ray_starts_w += pos_w.unsqueeze(1)
             ray_dirs_w = self.ray_directions[env_ids]
         elif self.cfg.ray_alignment == "base":
             pos_w[:, 0:2] += quat_apply(quat_w, self.ray_cast_drift[env_ids])[:, 0:2]
-            ray_starts_w  = quat_apply(quat_w.repeat(1, self.num_rays), self.ray_starts[env_ids])
+            ray_starts_w = quat_apply(quat_w.repeat(1, self.num_rays), self.ray_starts[env_ids])
             ray_starts_w += pos_w.unsqueeze(1)
-            ray_dirs_w    = quat_apply(quat_w.repeat(1, self.num_rays), self.ray_directions[env_ids])
+            ray_dirs_w = quat_apply(quat_w.repeat(1, self.num_rays), self.ray_directions[env_ids])
         else:
             raise RuntimeError(f"[RayCasterMultiMesh] Unsupported ray_alignment: {self.cfg.ray_alignment}")
 
         B, R, _ = ray_starts_w.shape
 
-        # === 2) прочитать препятствия и обновить сетку при необходимости ===
-        self._update_obstacles_and_grid(force_regrid=self._grid_dirty)
+        # --- obstacles + grid ---
+        self._update_obstacles_and_grid(force_regrid=False)
 
-        # кэшированные центры/оси (float32) → device/comp_dtype
-        comp_dtype = torch.float16 if use_amp else torch.float32
-        C_all = self._C_all.to(device=device, dtype=comp_dtype)   # (B,M,3)
-        u_all = self._u_all.to(device=device, dtype=comp_dtype)   # (B,M,3)
-        v_all = self._v_all.to(device=device, dtype=comp_dtype)   # (B,M,3)
-        w_all = self._w_all.to(device=device, dtype=comp_dtype)   # (B,M,3)
-
-        # === 3) вычисления плитками по R (по памяти) ===
+        # typed constants
         out_dtype = self._data.ray_hits_w.dtype
-        best_hits = torch.full((B, R, 3), float("inf"), device=device, dtype=out_dtype)
+        comp_dtype = torch.float16 if use_amp else torch.float32
 
-        # константы / dtype вычислений
-        r      = torch.as_tensor(self._cyl_radius,  device=device, dtype=comp_dtype)
-        h      = torch.as_tensor(self._cyl_height,  device=device, dtype=comp_dtype)
-        half_h = 0.5 * h
-        max_d  = torch.as_tensor(self.cfg.max_distance, device=device, dtype=comp_dtype)
-        eps    = torch.as_tensor(1e-8, device=device, dtype=comp_dtype)
-        INF    = torch.as_tensor(float("inf"), device=device, dtype=comp_dtype)
+        # flatten per-ray views
+        # env index per ray (B,R) -> (N)
+        env_idx = torch.as_tensor(env_ids, device=dev, dtype=torch.int32)
+        env_map = env_idx.view(-1, 1).repeat(1, R).contiguous().view(-1)  # (N=B*R)
 
-        block_R = self._block_R if (0 < self._block_R <= R) else min(R, 1024)
-        ray_blocks: List[Tuple[int, int]] = [(i, min(i + block_R, R)) for i in range(0, R, block_R)]
+        # ray buffers flattened
+        S_all = ray_starts_w.reshape(-1, 3).to(device=dev, dtype=comp_dtype)  # (N,3)
+        D_all = ray_dirs_w.reshape(-1, 3).to(device=dev, dtype=comp_dtype)    # (N,3)
+        N_tot = S_all.shape[0]
 
-        with _autocast_ctx(use_amp, dtype=torch.float16):
-            for r0, r1 in ray_blocks:
-                # S,D объявляем ДО вызова _gather_candidates (раньше тут был UnboundLocalError)
-                S = ray_starts_w[:, r0:r1, :].to(device=device, dtype=comp_dtype)  # (B,Rb,3)
-                D = ray_dirs_w[:,   r0:r1, :].to(device=device, dtype=comp_dtype)  # (B,Rb,3)
-                Rb = r1 - r0
+        # candidate buffer (N, K) int32
+        K = self._kmax
+        cand = torch.full((N_tot, K), -1, device=dev, dtype=torch.int32)
 
-                # нормализуем направления
-                D = D / torch.linalg.norm(D, dim=-1, keepdim=True).clamp_min_(eps)
+        # --- DDA broad phase ---
+        nx, ny = self._grid["shape"]
+        n_cells = nx * ny
+        origin = self._grid["origin"]
+        cell = float(self._grid["cell"])
+        cell_start = self._grid["cell_start"]
+        cell_count = self._grid["cell_count"]
+        cell_items = self._grid["cell_items"]
 
-                # --- шир. фаза: кандидаты (B,Rb,K) long, в [0..M-1]
-                cand = self._gather_candidates(S[..., :2], D[..., :2])
-                K = cand.shape[-1]
+        if _HAS_TRITON and cuda_ok:
+            # pack XY and launch kernel
+            Sx = S_all[:, 0].contiguous()
+            Sy = S_all[:, 1].contiguous()
+            Dx = D_all[:, 0].contiguous()
+            Dy = D_all[:, 1].contiguous()
+            grid = lambda META: (triton.cdiv(N_tot, META['BLOCK']),)
+            _dda_candidates_kernel[grid](  # type: ignore
+                Sx, Sy, Dx, Dy,
+                origin[0].item(), origin[1].item(), cell, nx, ny,
+                cell_start.reshape(-1), cell_count.reshape(-1), cell_items.reshape(-1),
+                cand.reshape(-1),
+                env_map,  # per-ray env
+                K, self._dda_max,
+                N_tot, n_cells,
+                BLOCK=256
+            )
+        else:
+            # fallback: simple per-ray cell lookup (vectorized)
+            # Compute starting cell and take first K items in that cell.
+            Sxy = S_all[:, :2]
+            Dxy = D_all[:, :2]
+            invn = torch.rsqrt(torch.clamp((Dxy*Dxy).sum(-1, keepdim=True), min=1e-12))
+            Dxy = Dxy * invn
+            ix = ((Sxy[:, 0] - origin[0]) / cell).floor().to(torch.int64).clamp(0, nx-1)
+            iy = ((Sxy[:, 1] - origin[1]) / cell).floor().to(torch.int64).clamp(0, ny-1)
+            cid = (iy * nx + ix)  # (N)
+            # gather [start,count] per ray/env
+            start = torch.gather(cell_start, 1, cid.view(N_tot,1)).squeeze(1)
+            count = torch.gather(cell_count, 1, cid.view(N_tot,1)).squeeze(1)
+            # fetch up to K items
+            offs = start.view(-1,1) + torch.arange(K, device=dev, dtype=torch.int64).view(1,-1)
+            mask = (torch.arange(K, device=dev).view(1,-1) < count.view(-1,1))
+            items_flat = torch.gather(cell_items, 1, offs.clamp_max(self._M-1))
+            cand = torch.where(mask, items_flat, torch.full_like(items_flat, -1))
 
-                # --- узкая фаза: выберем параметры препятствий по cand
-                Ck = _select_batched_1d_on_M(C_all, cand)  # (B,Rb,K,3)
-                uk = _select_batched_1d_on_M(u_all, cand)  # (B,Rb,K,3)
-                vk = _select_batched_1d_on_M(v_all, cand)  # (B,Rb,K,3)
-                wk = _select_batched_1d_on_M(w_all, cand)  # (B,Rb,K,3)
+        # --- narrow phase ---
+        # materialize per-ray per-candidate obstacle arrays via gather:
+        # We want tensors shaped (N, M, 3) logically, but we only use K cands; we’ll build (N, M,3) “views” by scatter-gather trick:
+        # Simplify: repeat per-env arrays for each ray in that env, then gather by cand.
 
-                # локальные координаты через скалярные проекции (без явного R^T)
-                Rk = torch.stack([uk, vk, wk], dim=-1)          # (B,Rb,K,3,3)
+        # build per-ray aligned (N, M, 3) by indexing env first (no data copy thanks to view+expand)
+        # E,M,3 -> N,M,3
+        E = self._E_total
+        M = self._M
+        # map rays -> env rows
+        C_env = self._C_all  # (E,M,3)
+        U_env = self._U_all
+        V_env = self._V_all
+        W_env = self._W_all
 
-                # S_local = (S - Ck) @ Rk  и  D_local = D @ Rk
-                S_local = torch.matmul(S.unsqueeze(2) - Ck, Rk) # (B,Rb,K,3)
-                D_local = torch.matmul(D.unsqueeze(2),      Rk) # (B,Rb,K,3)
+        # select rows
+        env_long = env_map.to(torch.long)
+        C_sel = C_env.index_select(0, env_long)   # (N, M, 3)
+        U_sel = U_env.index_select(0, env_long)
+        V_sel = V_env.index_select(0, env_long)
+        W_sel = W_env.index_select(0, env_long)
 
-                Su, Sv, Sw = S_local.unbind(-1)                # (B,Rb,K) x3
-                Du, Dv, Dw = D_local.unbind(-1)
+        # flatten for kernel (row-major)
+        C_flat = C_sel.reshape(-1, 3).contiguous()
+        U_flat = U_sel.reshape(-1, 3).contiguous()
+        V_flat = V_sel.reshape(-1, 3).contiguous()
+        W_flat = W_sel.reshape(-1, 3).contiguous()
 
-                # боковая поверхность: (Su + t*Du)^2 + (Sv + t*Dv)^2 = r^2
-                a   = Du*Du + Dv*Dv
-                b   = 2.0 * (Su*Du + Sv*Dv)
-                c_q = Su*Su + Sv*Sv - (r*r)
+        # We will address C/U/V/W as (N, M, 3) flattened in kernel by pid*M*3 + idx*3
 
-                a   = torch.where(a.abs() < eps, eps, a)
-                disc = b*b - 4.0*a*c_q
+        hits = torch.empty((N_tot, 3), device=dev, dtype=torch.float32)
 
-                sqrt_disc = torch.zeros_like(disc)
-                pos_disc  = disc >= 0
-                sqrt_disc[pos_disc] = torch.sqrt(disc[pos_disc])
+        radius = float(self._cyl_radius)
+        half_h = float(self._cyl_height * 0.5)
+        max_d = float(self.cfg.max_distance)
 
-                INFk = torch.full_like(disc, INF)
+        if _HAS_TRITON and cuda_ok:
+            grid = lambda META: (triton.cdiv(N_tot, META['BLOCK']),)
+            _narrow_phase_kernel[grid](   # type: ignore
+                S_all.reshape(-1), D_all.reshape(-1),
+                cand.reshape(-1),
+                C_flat.reshape(-1), U_flat.reshape(-1), V_flat.reshape(-1), W_flat.reshape(-1),
+                M, K,
+                radius, half_h, max_d,
+                hits.reshape(-1),
+                N_tot,
+                BLOCK=256
+            )
+        else:
+            # fallback torch vector (batched by K)
+            # gather C/U/V/W by candidates
+            cand_clamped = cand.clamp(min=0, max=M-1).to(torch.long)  # (N,K)
+            idx3 = cand_clamped.unsqueeze(-1).expand(N_tot, K, 3)    # (N,K,3)
+            Ck = torch.gather(C_sel, 1, idx3)
+            Uk = torch.gather(U_sel, 1, idx3)
+            Vk = torch.gather(V_sel, 1, idx3)
+            Wk = torch.gather(W_sel, 1, idx3)
 
-                t1 = (-b - sqrt_disc) / (2.0*a)
-                t2 = (-b + sqrt_disc) / (2.0*a)
-                t1 = torch.where(t1 > 0.0, t1, INFk)
-                t2 = torch.where(t2 > 0.0, t2, INFk)
-    
-                z1 = Sw + t1*Dw
-                z2 = Sw + t2*Dw
-                ok1 = (z1 >= -half_h) & (z1 <= half_h)
-                ok2 = (z2 >= -half_h) & (z2 <= half_h)
+            S = S_all[:, None, :].expand(N_tot, K, 3)
+            D = D_all[:, None, :].expand(N_tot, K, 3)
+            D = D / torch.linalg.norm(D, dim=-1, keepdim=True).clamp_min_(1e-8)
 
-                t_side = torch.minimum(torch.where(ok1, t1, INFk),
-                                   torch.where(ok2, t2, INFk))
+            Srel = S - Ck
+            Su = (Srel*Uk).sum(-1); Sv = (Srel*Vk).sum(-1); Sw = (Srel*Wk).sum(-1)
+            Du = (D*Uk).sum(-1);    Dv = (D*Vk).sum(-1);    Dw = (D*Wk).sum(-1)
 
-                # крышки: z=±h/2
-                Dw_safe = torch.where(Dw.abs() < eps, eps, Dw)
-                t_top = ( half_h - Sw) / Dw_safe
-                t_bot = (-half_h - Sw) / Dw_safe
-                t_top = torch.where(t_top > 0.0, t_top, INFk)
-                t_bot = torch.where(t_bot > 0.0, t_bot, INFk)
-                ok_top = (Su + t_top*Du)**2 + (Sv + t_top*Dv)**2 <= (r*r)
-                ok_bot = (Su + t_bot*Du)**2 + (Sv + t_bot*Dv)**2 <= (r*r)
-    
-                t_caps = torch.minimum(torch.where(ok_top, t_top, INFk),
-                                   torch.where(ok_bot, t_bot, INFk))
+            a = Du*Du + Dv*Dv
+            b = 2.0*(Su*Du + Sv*Dv)
+            c_q = Su*Su + Sv*Sv - radius*radius
+            a = torch.where(a.abs() < 1e-12, torch.full_like(a, 1e-12), a)
+            disc = b*b - 4.0*a*c_q
 
-                # финальный t по кандидатам
-                t_k = torch.minimum(t_side, t_caps)              # (B,Rb,K)
-                t_k = torch.where(t_k <= max_d, t_k, INFk)
+            t_side = torch.full_like(disc, float("inf"))
+            pos = disc >= 0
+            sdisc = torch.zeros_like(disc); sdisc[pos] = torch.sqrt(disc[pos])
+            t1 = (-b - sdisc)/(2.0*a); t2 = (-b + sdisc)/(2.0*a)
+            t1 = torch.where(t1>0.0, t1, t_side); t2 = torch.where(t2>0.0, t2, t_side)
+            z1 = Sw + t1*Dw; z2 = Sw + t2*Dw
+            ok1 = (z1>=-half_h) & (z1<=half_h); ok2 = (z2>=-half_h) & (z2<=half_h)
+            t_side = torch.minimum(torch.where(ok1, t1, t_side), torch.where(ok2, t2, t_side))
 
-                # минимум по кандидатам → лучший t на луч
-                best_t_rb, _ = torch.min(t_k, dim=2)             # (B,Rb)
+            Dw_safe = torch.where(Dw.abs()<1e-12, torch.sign(Dw)*1e-12, Dw)
+            tt = ( half_h - Sw)/Dw_safe; tb = (-half_h - Sw)/Dw_safe
+            tt = torch.where(tt>0.0, tt, t_side); tb = torch.where(tb>0.0, tb, t_side)
+            in_top = (Su+tt*Du)**2 + (Sv+tt*Dv)**2 <= radius*radius
+            in_bot = (Su+tb*Du)**2 + (Sv+tb*Dv)**2 <= radius*radius
+            t_caps = torch.minimum(torch.where(in_top, tt, t_side), torch.where(in_bot, tb, t_side))
 
-                # мировая точка: P = S + t*D
-                P = torch.addcmul(S, best_t_rb.unsqueeze(-1), D).to(dtype=out_dtype)
+            t = torch.minimum(t_side, t_caps)
+            # mask invalid candidates (-1)
+            t = torch.where(cand>=0, t, torch.full_like(t, float("inf")))
+            t = torch.where(t <= max_d, t, torch.full_like(t, float("inf")))
+            tmin, _ = t.min(dim=1)  # (N)
+            hits = S_all + tmin.unsqueeze(-1)*D_all
+            hits = hits.to(torch.float32)
 
-        # === 4) Добавим Z-дрифт (как в оригинале) и коммит ===
-        best_hits[:, :, 2] += self.ray_cast_drift[env_ids, 2].unsqueeze(-1).to(dtype=out_dtype)
-        self._data.ray_hits_w[env_ids] = best_hits
+        # write back (B,R,3)
+        best_hits = hits.view(B, R, 3)
+        # add Z drift like base
+        best_hits[:, :, 2] += self.ray_cast_drift[env_ids, 2].unsqueeze(-1).to(best_hits.dtype)
+        self._data.ray_hits_w[env_ids] = best_hits.to(out_dtype)
 
     # ----------------------------------
     # debug vis
     # ----------------------------------
-
     def _debug_vis_callback(self, event):
         pts = self._data.ray_hits_w.reshape(-1, 3)
         finite = torch.isfinite(pts).all(dim=1)
