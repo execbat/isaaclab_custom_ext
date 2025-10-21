@@ -152,6 +152,7 @@ class ObservationsCfg:
         )         
               
         # CUSTOM ADDED OBSERVATIONS
+        '''
         # front camera Intel RealSense D435i
         cam_rgb_feat = ObsTerm(
             func=compressed_image_features,
@@ -167,7 +168,7 @@ class ObservationsCfg:
             func=depth_avgpool,
             params={"sensor_cfg": SceneEntityCfg("front_camera"), "pool": 4},
         )
-        
+        '''
         # lidar observations RayCaster
         lidar_scan_full = ObsTerm(
             func=lidar_height_channels_all,
@@ -176,9 +177,10 @@ class ObservationsCfg:
                 "normalize": True,
                 "clip_to_unit": False,
                 "fill_no_hit": None,   # -> max_distance
-                "flatten": True,       # получишь (N, C*A)
+                "flatten": True,       # shape (N, C*A)
             },
         )
+        
 #       # RTX LIDAR
 #        rtx_lidar_points = ObsTerm(
 #            func=obs_rtx_lidar_points,

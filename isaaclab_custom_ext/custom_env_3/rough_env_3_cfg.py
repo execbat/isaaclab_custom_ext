@@ -37,7 +37,7 @@ from isaaclab.sim.spawners.from_files.from_files_cfg import  UsdFileCfg
 import numpy as np
 import omni
 # from isaacsim.sensors.rtx import LidarRtx
-from .ray_caster_multimesh import RayCasterMultiMesh # custom overrider for LIDAR RayCaster MultiMesh
+from .ray_caster_multimesh import RayCasterMultiMesh, RayCasterMultiMeshCfg # custom overrider for LIDAR RayCaster MultiMesh
 
 
 
@@ -152,7 +152,7 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
             horizontal_fov_range=(-180, 180.0),     
             horizontal_res=45.0,                    # grad/step (0.2° -> 1800 datapoints for 360°) 45.0° -> 8 datapoints for 360°
         )
-        self.scene.lidar_top = RayCasterCfg(
+        self.scene.lidar_top = RayCasterMultiMeshCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
             class_type=RayCasterMultiMesh,                 # New class for MultiMesh
             update_period=0.02,
@@ -161,7 +161,14 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
             ray_alignment="base",                  # Specify in what frame the rays are projected onto the ground. Default is "base" ["base", "yaw", "world"]
             pattern_cfg= lidar_pattern,
             debug_vis=False,  
-            max_distance=10,         
+            max_distance=10,  
+             
+            cylinder_radius=0.4,
+            cylinder_height=1.2,
+            # tuning
+            #use_fp16=True, 
+            #block_R=64, 
+            #block_M=2,    
         )        
   
 
