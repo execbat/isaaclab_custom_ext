@@ -19,7 +19,7 @@ class G1Rewards(RewardsCfg):
     )
 #    track_vel_exp_product = RewTerm(
 #        func=angvel_flat_l2_product,
-#        weight=20.0,  
+#        weight=50.0,  
 #        params=dict(
 #            command_name="base_velocity",
 #            std=math.sqrt(0.25),
