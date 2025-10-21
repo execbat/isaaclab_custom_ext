@@ -36,7 +36,8 @@ from isaaclab.sim.spawners.from_files.from_files_cfg import  UsdFileCfg
 
 import numpy as np
 import omni
-from isaacsim.sensors.rtx import LidarRtx
+# from isaacsim.sensors.rtx import LidarRtx
+from .ray_caster_multimesh import RayCasterMultiMesh # custom overrider for LIDAR RayCaster MultiMesh
 
 
 
@@ -135,23 +136,33 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
             prim_path="{ENV_REGEX_NS}/Robot/torso_link/d435_link/camera",  
             offset=CameraCfg.OffsetCfg(pos=(0, 0, 0), rot=(1, 0, 0, 0), convention="world"), # Offset is d435_link frame in reference to torso_link from urdf
             spawn=cam_spawn,            
-            width=160,   # 640
-            height=120,  # 480
-            data_types=["distance_to_image_plane"],  # RGB + "depth" ["rgb", "distance_to_image_plane"]
+            width=640,   # 640
+            height=480,  # 480
+            data_types=["rgb", "distance_to_image_plane"],  # RGB + "depth" ["rgb", "distance_to_image_plane"]
             update_period= 0.1,                    # every step of env env (sync)
             update_latest_camera_pose=True,
             depth_clipping_behavior="max",
         )
 
 
-#       ##########################################################################        
-        # Lazy registration of ==RTX LIDAR== as it should be created after building all environments. 
-        # That is why creation of LIDAR executed via lazy hook throught Observation manager on the first query from ObsManager
-#        self.scene.rtx_lidar_top = SceneEntityCfg()
-#            prim_path="{ENV_REGEX_NS}/Robot/torso_link/rtx_lidar_top"
-#        )
-#        #########################################################################        
-        
+        # === 360° LiDAR via RayCaster  ===
+        lidar_pattern = LidarPatternCfg(
+            channels=8 ,                           # number of vertical rays
+            vertical_fov_range=(-90.0, 90.0),      # degrees
+            horizontal_fov_range=(-180, 180.0),     
+            horizontal_res=45.0,                    # grad/step (0.2° -> 1800 datapoints for 360°) 45.0° -> 8 datapoints for 360°
+        )
+        self.scene.lidar_top = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
+            class_type=RayCasterMultiMesh,                 # New class for MultiMesh
+            update_period=0.02,
+            offset=RayCasterCfg.OffsetCfg(pos=(0.0002835, 0.00003, 0.40618), rot=(0.999799, 0.0, 0.020070, 0.0)), # Offset is mid360 link frame in reference to torso_link from urdf
+            mesh_prim_paths=["{ENV_REGEX_NS}/obst_*"],     # The list of mesh primitive paths to ray cast against
+            ray_alignment="base",                  # Specify in what frame the rays are projected onto the ground. Default is "base" ["base", "yaw", "world"]
+            pattern_cfg= lidar_pattern,
+            debug_vis=False,  
+            max_distance=10,         
+        )        
   
 
         # === IMU inside of torso ===
@@ -217,7 +228,8 @@ class G1RoughEnv3Cfg_PLAY(G1RoughEnv3Cfg):
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
         
         # switch ON debug vis
-        self.observations.policy.rtx_lidar_points.params["debug"] = True
+        #self.observations.policy.rtx_lidar_points.params["debug"] = True
+        self.scene.lidar_top.debug_vis = True
         self.scene.imu.debug_vis = True
 
         

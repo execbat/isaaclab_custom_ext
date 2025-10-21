@@ -22,31 +22,109 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import torch
 
 from .rtx_lidar_lazy_hook import obs_rtx_lidar_points
+from .observations import depth_avgpool, compressed_image_features
 
 ##
 # Pre-defined configs
 ##
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG  # isort: skip
 
+
 # help function for LIDAR obs compression
-def lidar_height_channels_min(env, sensor_cfg: SceneEntityCfg, offset: float = 0.0) -> torch.Tensor:
+def lidar_height_channels_all(
+    env,
+    sensor_cfg: SceneEntityCfg,
+    normalize: bool = False,        # нормировка по max_distance -> [0,1]
+    clip_to_unit: bool = False,     # клипнуть [0,1] после нормировки
+    fill_no_hit: float | None = None, # чем заполнить отсутствие пересечения (None -> max_distance)
+    flatten: bool = True,           # вернуть (N, C*A) вместо (N, C, A)
+) -> torch.Tensor:
     """
-    Converts RayCaster output into a compact 1D vector: for each vertical channel
-    Take the minimum azimuth (i.e., the closest height/obstacle). Size: (num_envs, channels).
+    Возвращает ВСЕ дистанции лидара (без редукции по азимуту):
+      - форма (N, C, A) или (N, C*A) если flatten=True.
 
-    Works with the pattern (channels x azimuth). Based on mdp.height_scan.
+    Делает:
+      • Восстановление стартов лучей как в RayCaster (учёт ray_alignment + offset).
+      • Защита от NaN/Inf, отрицательных значений.
+      • (Опц.) нормировка по sensor.cfg.max_distance.
     """
-    # height_scan returns (N, num_rays) in the same order as the lidar template
-    hs = mdp.height_scan(env, sensor_cfg=sensor_cfg, offset=offset)          # (N, num_rays)
-    sensor = env.scene.sensors[sensor_cfg.name]
-    # extract the number of channels from the pattern
-    channels = int(sensor.cfg.pattern_cfg.channels)
-    # expand into (N, channels, azimuth_bins) and take the minimum in azimuth
-    hs = hs.view(env.num_envs, channels, -1).amin(dim=-1)                    # (N, channels)
-    # (optional) normalize/clip to stabilize the scale
-    return torch.clamp(hs, -2.0, 2.0)
+    from isaaclab.utils.math import quat_apply, quat_apply_yaw
 
+    sensor = env.scene.sensors[sensor_cfg.name]   # RayCaster
+    hits_w  = sensor.data.ray_hits_w              # (N, R, 3)
+    pos_w   = sensor.data.pos_w                   # (N, 3)
+    quat_w  = sensor.data.quat_w                  # (N, 4)
+    max_d   = float(sensor.cfg.max_distance)
+    N       = hits_w.shape[0]
 
+    # --- robust: приводим ray_starts к (N, R, 3) ---
+    rs = sensor.ray_starts.to(dtype=hits_w.dtype, device=hits_w.device)
+    assert rs.shape[-1] == 3, f"ray_starts last dim must be 3, got {rs.shape}"
+    R = rs.shape[-2]
+    rs = rs.reshape(-1, R, 3)            # (B, R, 3)
+    if rs.shape[0] == 1 and N > 1:
+        rs = rs.expand(N, R, 3)
+    if rs.shape[0] != N:
+        reps = (N + rs.shape[0] - 1) // rs.shape[0]
+        rs = rs.repeat(reps, 1, 1)[:N, :, :]
+    ray_starts_local = rs                 # (N, R, 3)
+
+    # --- мировые старты с учётом ray_alignment ---
+    align = getattr(sensor.cfg, "ray_alignment", "base")
+    if align == "world":
+        ray_starts_w = ray_starts_local.clone()
+        if hasattr(sensor, "ray_cast_drift"):
+            ray_starts_w[:, :, 0:2] += sensor.ray_cast_drift[:, 0:2].unsqueeze(1)
+        ray_starts_w += pos_w.unsqueeze(1)
+    elif align == "yaw":
+        ray_starts_w = quat_apply_yaw(
+            quat_w.repeat_interleave(R, dim=0),
+            ray_starts_local.reshape(-1, 3)
+        ).reshape(N, R, 3)
+        if hasattr(sensor, "ray_cast_drift"):
+            ray_starts_w[:, :, 0:2] += quat_apply_yaw(quat_w, sensor.ray_cast_drift)[:, 0:2].unsqueeze(1)
+        ray_starts_w += pos_w.unsqueeze(1)
+    elif align == "base":
+        ray_starts_w = quat_apply(
+            quat_w.repeat_interleave(R, dim=0),
+            ray_starts_local.reshape(-1, 3)
+        ).reshape(N, R, 3)
+        if hasattr(sensor, "ray_cast_drift"):
+            ray_starts_w[:, :, 0:2] += quat_apply(quat_w, sensor.ray_cast_drift)[:, 0:2].unsqueeze(1)
+        ray_starts_w += pos_w.unsqueeze(1)
+    else:
+        raise RuntimeError(f"[lidar_height_channels_all] Unsupported ray_alignment: {align}")
+
+    # --- расстояния до хитов (N, R) ---
+    dists = torch.linalg.norm(hits_w - ray_starts_w, dim=-1)
+
+    # защита от NaN/Inf/отрицательных
+    fill = max_d if fill_no_hit is None else float(fill_no_hit)
+    dists = torch.nan_to_num(dists, nan=fill, posinf=fill, neginf=fill)
+    dists = torch.clamp(dists, min=0.0)
+
+    # --- раскладка в (N, C, A) без редукции ---
+    C = int(sensor.cfg.pattern_cfg.channels)
+    assert R % C == 0, f"Rays ({R}) must be divisible by channels ({C})."
+    A = R // C
+    dists = dists.view(N, C, A)  # (N, C, A)
+
+    # --- нормировка (опционально) ---
+    if normalize:
+        scale = max(max_d, 1e-6)
+        dists = dists / scale
+        if clip_to_unit:
+            dists = torch.clamp(dists, 0.0, 1.0)
+
+    # --- форма для ObsManager ---
+    if flatten:
+        dists = dists.reshape(N, C * A)  # (N, C*A)
+    
+    #print(f"LIDAR {dists}, type {type(dists)}")
+    return dists.to(torch.float32)
+    
+    
+    
 @configclass
 class ObservationsCfg:
     """Observation specifications for the MDP."""
@@ -76,25 +154,36 @@ class ObservationsCfg:
         # CUSTOM ADDED OBSERVATIONS
         # front camera Intel RealSense D435i
         cam_rgb_feat = ObsTerm(
-            func=mdp.image_features,
+            func=compressed_image_features,
             params={
                 "sensor_cfg": SceneEntityCfg("front_camera"),
-                "data_type": "distance_to_image_plane",          #  ["rgb", "distance_to_image_plane"] 
-                "model_name": "resnet18",                        #  model feature extractor
-                #"model_device": env.device
+                "data_type": "rgb",
+                "model_name": "theia-tiny-patch16-224-cdiv",  # or cddsv
+                #"model_device": env.device,                  
             },
+        )
+        # preprocessed depth map from the front camera
+        cam_depth_vec = ObsTerm(
+            func=depth_avgpool,
+            params={"sensor_cfg": SceneEntityCfg("front_camera"), "pool": 4},
         )
         
         # lidar observations RayCaster
-#        lidar_scan_compact = ObsTerm(
-#            func=lidar_height_channels_min,
-#            params={"sensor_cfg": SceneEntityCfg("lidar_top"), "offset": 0.0},
-#        )
-#       # RTX LIDAR
-        rtx_lidar_points = ObsTerm(
-            func=obs_rtx_lidar_points,
-            params={"debug" : False},            
+        lidar_scan_full = ObsTerm(
+            func=lidar_height_channels_all,
+            params={
+                "sensor_cfg": SceneEntityCfg("lidar_top"),
+                "normalize": True,
+                "clip_to_unit": False,
+                "fill_no_hit": None,   # -> max_distance
+                "flatten": True,       # получишь (N, C*A)
+            },
         )
+#       # RTX LIDAR
+#        rtx_lidar_points = ObsTerm(
+#            func=obs_rtx_lidar_points,
+#            params={"debug" : False},            
+#        )
         
         
         # imu data
