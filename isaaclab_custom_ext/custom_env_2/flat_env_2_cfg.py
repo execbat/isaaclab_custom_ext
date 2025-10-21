@@ -8,6 +8,7 @@ from isaaclab.utils import configclass
 
 from isaaclab_custom_ext.custom_env_2.rough_env_2_cfg import G1RoughEnv2Cfg
 from isaaclab_custom_ext.custom_env_2.objects import TARGET_MARKER
+from .custom_commands_cfg import TestCommandsCfg
 
 
 
@@ -49,6 +50,13 @@ class G1FlatEnv2Cfg_PLAY(G1FlatEnv2Cfg):
     def __post_init__(self) -> None:
         # post init of parent
         super().__post_init__()
+        
+        # SWITCH TO NEW COMMANDS
+        self.commands = TestCommandsCfg()
+        
+        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 2.0)
+        self.commands.base_velocity.ranges.lin_vel_y = (-0.0, 0.0)
+        self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
 
         # make a smaller scene for play
         self.scene.num_envs = 50

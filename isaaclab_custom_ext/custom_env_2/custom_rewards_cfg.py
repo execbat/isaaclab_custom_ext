@@ -11,24 +11,24 @@ from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_mo
 class G1Rewards(RewardsCfg):
     """Reward terms for the MDP."""
 
-#    track_lin_vel_xy_exp = RewTerm(
-#        func=mdp.track_lin_vel_xy_exp, weight=0.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
-#    )
-#    track_ang_vel_z_exp = RewTerm(
-#        func=mdp.track_ang_vel_z_exp, weight=0.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
-#    )
-    track_vel_exp_product = RewTerm(
-        func=angvel_flat_l2_product,
-        weight=20.0,  
-        params=dict(
-            command_name="base_velocity",
-            std=math.sqrt(0.25),
-        ),
+    track_lin_vel_xy_exp = RewTerm(
+        func=mdp.track_lin_vel_xy_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
+    track_ang_vel_z_exp = RewTerm(
+        func=mdp.track_ang_vel_z_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+    )
+#    track_vel_exp_product = RewTerm(
+#        func=angvel_flat_l2_product,
+#        weight=20.0,  
+#        params=dict(
+#            command_name="base_velocity",
+#            std=math.sqrt(0.25),
+#        ),
+#    )
     
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
-        weight=0.5,
+        weight=0.0015,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
             "command_name": "base_velocity",
@@ -36,13 +36,13 @@ class G1Rewards(RewardsCfg):
         },
     )    
 
-    action_rate_l2 =      RewTerm(func=mdp.action_rate_l2,   weight=-0.015)
-    dof_torques_l2 =      RewTerm(func=mdp.joint_torques_l2, weight=-1e-4)
-    joint_vel_l2 =        RewTerm(func=mdp.joint_vel_l2,     weight= -1.0e-4)
+    action_rate_l2 =      RewTerm(func=mdp.action_rate_l2,   weight=-0.0015)
+    dof_torques_l2 =      RewTerm(func=mdp.joint_torques_l2, weight=-1e-5)
+    joint_vel_l2 =        RewTerm(func=mdp.joint_vel_l2,     weight= -1.0e-5)
     dof_acc_l2 =          RewTerm(func=mdp.joint_acc_l2,     weight=-1e-07)
     feet_slide = RewTerm(
         func=mdp.feet_slide,
-        weight=-0.1, 
+        weight=-0.01, 
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_ankle_roll_link"),
@@ -50,7 +50,7 @@ class G1Rewards(RewardsCfg):
     )   
     feet_impact_vel = RewTerm( 
         func=feet_impact_vel,
-        weight=-0.001,
+        weight=-0.0001,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
             "asset_cfg":  SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
@@ -62,16 +62,16 @@ class G1Rewards(RewardsCfg):
     )
     
     pelvis_height_target_reward = RewTerm( 
-        func=pelvis_height_target_reward, weight=0.3)    
+        func=pelvis_height_target_reward, weight=0.5)    
 
 
     termination_penalty = RewTerm(func=mdp.is_terminated,    weight=-200.0) 
-    lin_vel_z_l2 =        RewTerm(func=mdp.lin_vel_z_l2,     weight=-0.02)
-    ang_vel_xy_l2 =       RewTerm(func=mdp.ang_vel_xy_l2,    weight=-0.0005)
+    lin_vel_z_l2 =        RewTerm(func=mdp.lin_vel_z_l2,     weight=-0.002)
+    ang_vel_xy_l2 =       RewTerm(func=mdp.ang_vel_xy_l2,    weight=-0.00005)
     
     undesired_contacts = RewTerm(
         func=mdp.undesired_contacts,	
-        weight=-0.005,
+        weight=-0.0005,
         #params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*THIGH"), "threshold": 1.0},
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=[ "torso_link", "pelvis", ".*_hip_.*", ".*_wrist_.*", ".*shoulder_.*", ".*knee_.*", ".*elbow_.*"]),
         "threshold": 8.0}
@@ -79,7 +79,7 @@ class G1Rewards(RewardsCfg):
     
     no_cmd_motion = RewTerm( 
         func=no_command_motion_penalty,
-        weight=-0.1,   
+        weight=-0.01,   
         params={
             "command_name": "base_velocity",
             "lin_deadband": 0.03,   # sensitivity to "zero" linear command (m/s)
@@ -89,11 +89,11 @@ class G1Rewards(RewardsCfg):
         },
     )
     
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-0.005)
+    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-0.0005)
     
     lateral_slip = RewTerm( 
         func=lateral_slip_penalty,
-        weight=-0.001,
+        weight=-0.0001,
         params={"command_name": "base_velocity"}
     )    
  
@@ -128,11 +128,11 @@ class G1Rewards(RewardsCfg):
     )
        
     body_lin_acc_l2 = RewTerm(func=mdp.body_lin_acc_l2, weight=-2.5e-7)   
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-0.5) 
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-0.2) 
     
     idle_penalty = RewTerm(
         func = idle_penalty,
-        weight = -10.0,
+        weight = - 0.01,
         params={
             "command_name": "base_velocity",
             "asset_cfg": SceneEntityCfg("robot"),

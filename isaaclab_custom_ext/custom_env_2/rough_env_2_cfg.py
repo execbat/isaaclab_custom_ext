@@ -37,6 +37,7 @@ from isaaclab.sim.spawners.from_files.from_files_cfg import  UsdFileCfg
 import numpy as np
 import omni
 from isaacsim.sensors.rtx import LidarRtx
+from .custom_commands_cfg import TestCommandsCfg
 
 
 
@@ -86,8 +87,8 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         self.events.base_com = None
 
         # Rewards
-        self.rewards.track_lin_vel_xy_exp = None
-        self.rewards.track_ang_vel_z_exp = None
+        #self.rewards.track_lin_vel_xy_exp = None
+        #self.rewards.track_ang_vel_z_exp = None
 	
 
         # Commands
@@ -165,10 +166,12 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
 @configclass
 class G1RoughEnv2Cfg_PLAY(G1RoughEnv2Cfg):
 
-
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
+        
+        # SWITCH TO NEW COMMANDS
+        self.commands = TestCommandsCfg()
         
         self.episode_length_s = 40.0
 
