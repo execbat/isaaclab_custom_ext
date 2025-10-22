@@ -27,7 +27,10 @@ from isaaclab_custom_ext.custom_env_3.objects import TARGET_MARKER, OBSTACLE_CYL
 import isaaclab.sim as sim_utils
 from isaaclab.sensors import CameraCfg
 from isaaclab.sensors.ray_caster.patterns import LidarPatternCfg
-from isaaclab.sensors.ray_caster import RayCasterCfg
+
+#from isaaclab.sensors.ray_caster import RayCasterCfg
+from .regex_ray_caster_cfg import RegexRayCasterCfg
+
 from isaaclab.sensors.imu import ImuCfg
 
 from isaaclab.assets import AssetBaseCfg
@@ -37,8 +40,8 @@ from isaaclab.sim.spawners.from_files.from_files_cfg import  UsdFileCfg
 import numpy as np
 import omni
 # from isaacsim.sensors.rtx import LidarRtx
-from .ray_caster_multimesh import RayCasterMultiMesh, RayCasterMultiMeshCfg # custom overrider for LIDAR RayCaster MultiMesh
 
+#from .regex_ray_caster import RegexRayCaster
 
 
 MAX_OBS = 40
@@ -152,24 +155,22 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
             horizontal_fov_range=(-180, 180.0),     
             horizontal_res=45.0,                    # grad/step (0.2° -> 1800 datapoints for 360°) 45.0° -> 8 datapoints for 360°
         )
-        self.scene.lidar_top = RayCasterMultiMeshCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
-            class_type=RayCasterMultiMesh,                 # New class for MultiMesh
+        self.scene.lidar_top = RegexRayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/torso_link",
             update_period=0.02,
-            offset=RayCasterCfg.OffsetCfg(pos=(0.0002835, 0.00003, 0.40618), rot=(0.999799, 0.0, 0.020070, 0.0)), # Offset is mid360 link frame in reference to torso_link from urdf
-            mesh_prim_paths=["{ENV_REGEX_NS}/obst_*"],     # The list of mesh primitive paths to ray cast against
-            ray_alignment="base",                  # Specify in what frame the rays are projected onto the ground. Default is "base" ["base", "yaw", "world"]
-            pattern_cfg= lidar_pattern,
-            debug_vis=False,  
-            max_distance=10,  
-             
-            cylinder_radius=0.4,
-            cylinder_height=1.2,
-            # tuning
-            #use_fp16=True, 
-            #block_R=64, 
-            #block_M=2,    
-        )        
+            offset=RegexRayCasterCfg.OffsetCfg(
+                pos=(0.0002835, 0.00003, 0.40618),
+                rot=(0.999799, 0.0, 0.020070, 0.0),
+            ),
+            mesh_prim_paths=[
+                "{ENV_REGEX_NS}/obst_*",     
+                #"/World/ground",           
+            ],
+            ray_alignment="base",
+            pattern_cfg=lidar_pattern,
+            debug_vis=False,
+            max_distance=20.0,
+        )     
   
 
         # === IMU inside of torso ===
