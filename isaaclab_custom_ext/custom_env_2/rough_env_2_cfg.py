@@ -89,6 +89,8 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # Rewards
         #self.rewards.track_lin_vel_xy_exp = None
         #self.rewards.track_ang_vel_z_exp = None
+        self.rewards.feet_air_time = None
+        self.rewards.undesired_contacts = None
 	
 
         # Commands
