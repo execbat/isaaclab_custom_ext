@@ -28,7 +28,7 @@ class G1Rewards(RewardsCfg):
     
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
-        weight=0.0015,
+        weight=0.15,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
             "command_name": "base_velocity",
@@ -42,7 +42,7 @@ class G1Rewards(RewardsCfg):
     dof_acc_l2 =          RewTerm(func=mdp.joint_acc_l2,     weight=-1e-07)
     feet_slide = RewTerm(
         func=mdp.feet_slide,
-        weight=-0.01, 
+        weight=-0.1, 
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_ankle_roll_link"),
@@ -128,7 +128,7 @@ class G1Rewards(RewardsCfg):
     )
        
     body_lin_acc_l2 = RewTerm(func=mdp.body_lin_acc_l2, weight=-2.5e-7)   
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-0.2) 
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-4)
     
     idle_penalty = RewTerm(
         func = idle_penalty,
