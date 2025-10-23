@@ -59,18 +59,19 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # columns
         objs = {}
         for i in range(MAX_OBS):
-            name = f"obst_{i:02d}"            
+            name = f"obst_{i:02d}"
             objs[name] = OBSTACLE_CYL.replace(
-                prim_path=f"{{ENV_REGEX_NS}}/{name}",               
+                prim_path=f"{{ENV_REGEX_NS}}/{name}",
                 spawn=OBSTACLE_CYL.spawn.replace(copy_from_source=False),
-            )        
+            )
+        self.scene.obstacles = RigidObjectCollectionCfg(rigid_objects=objs)     
         
         self.scene.robot = MATH_G1_23DF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
         
         # additional items
 
-        self.scene.obstacles = RigidObjectCollectionCfg(rigid_objects=objs)       
+            
         # target
         self.scene.target = TARGET_MARKER.replace(
             prim_path="{ENV_REGEX_NS}/Target",
@@ -163,13 +164,14 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
                 rot=(0.999799, 0.0, 0.020070, 0.0),
             ),
             mesh_prim_paths=[
-                "{ENV_REGEX_NS}/obst_*",     
+                "{ENV_REGEX_NS}/obst_.*", 
+                "{ENV_REGEX_NS}/obst_.*/geometry/mesh",    
                 #"/World/ground",           
             ],
             ray_alignment="base",
             pattern_cfg=lidar_pattern,
-            debug_vis=False,
-            max_distance=20.0,
+            debug_vis=True,
+            max_distance=100.0,
         )     
   
 

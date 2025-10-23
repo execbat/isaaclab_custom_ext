@@ -34,11 +34,11 @@ TARGET_MARKER = RigidObjectCfg(
 #        collision_props=CollisionPropertiesCfg(collision_enabled=True),  
 #        visual_material=PreviewSurfaceCfg(diffuse_color=(0.8, 0.8, 0.8), roughness=0.6),
 #    ),
-#    init_state=RigidObjectCfg.InitialStateCfg(pos=(0.0, 0.0, 1.0)),
+#    init_state=RigidObjectCfg.InitialStateCfg(pos=(1000.0, 1000.0, 1000.0)),
 #)
 
 OBSTACLE_CYL = RigidObjectCfg(
-    prim_path="/World/ground/{ENV_REGEX_NS}/obstacles/obst_00",
+    prim_path="{ENV_REGEX_NS}/obst",
     spawn=MeshCylinderCfg(
         radius=0.40,
         height=1.2,
@@ -48,5 +48,5 @@ OBSTACLE_CYL = RigidObjectCfg(
         collision_props=CollisionPropertiesCfg(collision_enabled=True),
         visual_material=PreviewSurfaceCfg(diffuse_color=(0.8, 0.8, 0.8), roughness=0.6),
     ),
-    init_state=RigidObjectCfg.InitialStateCfg(pos=(1000.0, 1000.0, 1000.0)),
+    init_state=RigidObjectCfg.InitialStateCfg(pos=(5.0, 0.0, 0.0)),
 )

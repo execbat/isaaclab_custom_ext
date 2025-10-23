@@ -25,7 +25,7 @@ class G1Rewards(RewardsCfg):
 #            std=math.sqrt(0.25),
 #        ),
 #    )
-    '''
+    
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
         weight=0.0015,
@@ -65,7 +65,7 @@ class G1Rewards(RewardsCfg):
         func=pelvis_height_target_reward, weight=0.5)    
 
 
-    termination_penalty = RewTerm(func=mdp.is_terminated,    weight=-10.0)  # -200.0
+    termination_penalty = RewTerm(func=mdp.is_terminated,    weight=-200.0)  # -200.0
     lin_vel_z_l2 =        RewTerm(func=mdp.lin_vel_z_l2,     weight=-0.002)
     ang_vel_xy_l2 =       RewTerm(func=mdp.ang_vel_xy_l2,    weight=-0.00005)
     
@@ -141,4 +141,4 @@ class G1Rewards(RewardsCfg):
             "scale": 1.0,
         }
     )                
-    '''    
+      

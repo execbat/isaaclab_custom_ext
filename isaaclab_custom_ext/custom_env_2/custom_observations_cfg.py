@@ -73,7 +73,8 @@ class ObservationsCfg:
             noise=Unoise(n_min=-0.1, n_max=0.1),
             clip=(-1.0, 1.0),
         )         
-              
+         
+        '''      
         # CUSTOM ADDED OBSERVATIONS
         # front camera Intel RealSense D435i
         # Used Visual Transformer "theia-tiny-patch16-224-cdiv " input: RGB output: Features vector 
@@ -93,7 +94,7 @@ class ObservationsCfg:
         )
         
 
-#       # RTX LIDAR
+        # RTX LIDAR
         rtx_lidar_points = ObsTerm(
             func=obs_rtx_lidar_points,
             params={"debug" : False},            
@@ -104,7 +105,7 @@ class ObservationsCfg:
         imu_projected_gravity = ObsTerm(func=mdp.imu_projected_gravity)
         imu_ang_vel = ObsTerm(func=mdp.imu_ang_vel)
         imu_lin_acc = ObsTerm(func=mdp.imu_lin_acc)
-        
+        '''
 
         def __post_init__(self):
             self.enable_corruption = True

@@ -89,15 +89,15 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # Rewards
         #self.rewards.track_lin_vel_xy_exp = None
         #self.rewards.track_ang_vel_z_exp = None
-        self.rewards.feet_air_time = None
-        self.rewards.undesired_contacts = None
-        self.rewards.action_rate_l2 = None
-        self.rewards.ang_vel_xy_l2 = None
-        self.rewards.dof_acc_l2 = None
-        self.rewards.dof_torques_l2 = None
-        self.rewards.lin_vel_z_l2 = None
-        self.rewards.dof_pos_limits = None
-        self.rewards.flat_orientation_l2 = None
+        #self.rewards.feet_air_time = None
+        #self.rewards.undesired_contacts = None
+        #self.rewards.action_rate_l2 = None
+        #self.rewards.ang_vel_xy_l2 = None
+        #self.rewards.dof_acc_l2 = None
+        #self.rewards.dof_torques_l2 = None
+        #self.rewards.lin_vel_z_l2 = None
+        #self.rewards.dof_pos_limits = None
+        #self.rewards.flat_orientation_l2 = None
         
 	
 
@@ -108,7 +108,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
 
         # terminations
         # self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis", ".*_hip_.*", ".*_wrist_.*", ".*shoulder_.*", ".*knee_.*", ".*elbow_.*"]
-        # self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis", ".*_hip_.*", ".*knee_.*", ".*elbow_.*", ".*_wrist_.*"]
+        self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis", ".*_hip_.*", ".*knee_.*", ".*elbow_.*", ".*_wrist_.*"]
         
 
         # SENSORS
@@ -117,6 +117,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         #lidar_mount = "{ENV_REGEX_NS}/Robot/torso_link/mid360_link"
         #imu_mount   = "{ENV_REGEX_NS}/Robot/torso_link/imu_in_torso"
 
+        '''
         # 1 === FRONT RGB-D CAMERA  ===
         cam_spawn = sim_utils.PinholeCameraCfg(  # USD Camera spawner
             focal_length=0.88,                   
@@ -159,7 +160,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
             debug_vis=False
             
         )       
-
+        '''
 
 
         

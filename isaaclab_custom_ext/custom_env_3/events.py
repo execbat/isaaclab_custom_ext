@@ -6,6 +6,7 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.assets import Articulation, RigidObject
 import isaaclab.utils.math as math_utils
 from isaaclab.utils.math import euler_xyz_from_quat, wrap_to_pi
+import omni.log
 
 # =========================
 # utils
@@ -109,6 +110,7 @@ def spawn_obstacles_at_reset(
     keepout_goal: float = 0.8,
     min_obstacle_gap: float = 0.5,
     obstacle_z: float = 0.4,
+    sensor_name: float = "lidar_top"
 ) -> None:
     """Lays out cylinder columns around the robot like a "real" reset:
     read buffers -> modify -> write_object_pose_to_sim(..., env_ids) -> reset(env_ids).
@@ -181,6 +183,13 @@ def spawn_obstacles_at_reset(
     pose7_sel = pose7.index_select(0, env_ids)  # (len(env_ids), num_objects, 7)
     coll.write_object_pose_to_sim(pose7_sel, env_ids=env_ids)
     coll.reset(env_ids=env_ids)
+    
+    # if used RayCaster LIDAR - update obtacle poses
+    try:
+        lidar = env.scene.sensors[sensor_name]
+    except Exception:
+        print("NO RayCaster LIDAR detected")
 
-
+    lidar.meshes.clear()
+    lidar._retry_mesh_discovery = True
 
