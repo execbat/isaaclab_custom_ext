@@ -67,3 +67,46 @@ class compressed_image_features(mdp.image_features):
                 raise ValueError(f"Unknown pool mode: {pool}")
 
         return {"model": _load_model, "inference": _inference}
+        
+'''        
+def obs_rtx_lidar_vectorized(
+    env,
+    term_cfg=None,
+    num_points: int = 64,     # сколько точек брать на сенсор
+    channels:   int = 3,      # XYZ
+):
+    """
+    Возвращает torch.float32 тензор формы (num_envs, num_points*channels) на env.device.
+    Чтение — одним вызовом у общего annotator’а. «Рваные» облака паддим/обрезаем.
+    """
+
+    # only once
+    if not hasattr(env, "annotators"):
+        env.annotators = [sensor.get_annotators().values()[0] for sensor in env._rtx_lidars]
+    
+    data = map(lambda x: x.get_data(), env.annotators)
+    print(f"data: {data}")
+    
+
+    # CPU-буфер фиксированной формы; заполняем напрямую — минимум аллокаций
+    out_np = np.zeros((E, num_points, channels), dtype=np.float32)
+
+    # единственный короткий цикл по env'ам: раскладка «рваных» облаков в фиксированную решётку
+    # это неизбежно, т.к. размер облака на RP может отличаться
+    for i, rp_path in enumerate(env._rtx_rp_paths):
+        if not rp_path:
+            continue
+        arr = data.get(rp_path, None)
+        if arr is None:
+            continue
+        # ожидаем (N_i, >=channels)
+        if arr.ndim >= 2 and arr.shape[0] > 0:
+            n = min(num_points, arr.shape[0])
+            out_np[i, :n, :channels] = arr[:n, :channels]
+
+    # один раз конвертируем весь батч в torch
+    out = torch.as_tensor(out_np.reshape(E, -1), dtype=torch.float32, device=getattr(env, "device", torch.device("cpu")))
+    print(f"OBS {out}, shape: {out.shape}")
+    return out
+        
+'''        

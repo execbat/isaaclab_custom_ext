@@ -6,6 +6,13 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.assets import Articulation, RigidObject
 import isaaclab.utils.math as math_utils
 from isaaclab.utils.math import euler_xyz_from_quat, wrap_to_pi
+import omni
+import numpy as np
+from isaacsim.core.simulation_manager import SimulationManager
+import omni.replicator.core as rep
+from pxr import Gf
+from isaacsim.core.api.sensors.base_sensor import BaseSensor
+from isaacsim.sensors.rtx import LidarRtx
 
 # =========================
 # utils
@@ -183,4 +190,57 @@ def spawn_obstacles_at_reset(
     coll.reset(env_ids=env_ids)
 
 
+def spawn_rtx_lidar_event(
+    env,
+    env_ids: torch.Tensor,
+    term_cfg=None,
+    debug: bool = False,
+    mount_rel: str = "/Robot/torso_link/mid360_link",
+    sensor_name: str = "rtx_lidar_top",
+    scan_rate_hz: float = 20.0,
+    config_name: str = "Example_Rotary",
+):
+    """Создает по одному RTX LiDAR на каждый env_id, и навешивает аннотаторы."""
+    
+    def _norm_env_ids(env, env_ids):
+        if isinstance(env_ids, torch.Tensor):
+            return env_ids.to(device=torch.device("cpu")).long()
+        if env_ids is None:
+            return torch.arange(env.scene.num_envs, dtype=torch.long)
+        return torch.as_tensor(env_ids, dtype=torch.long)
+    
+    
+    
+    stage = omni.usd.get_context().get_stage()
+    ids = _norm_env_ids(env, env_ids)
 
+    if not hasattr(env, "_rtx_lidars"):
+        env._rtx_lidars = [None] * env.scene.num_envs
+        env._rtx_lidar_paths = [""] * env.scene.num_envs
+
+    for i in ids.tolist():
+        parent_path = f"/World/envs/env_{i}{mount_rel}"
+        sensor_path = f"{parent_path}/{sensor_name}"
+
+        assert stage.GetPrimAtPath(parent_path).IsValid(), f"[RTX-Lidar] mount prim not found: {parent_path}"
+
+        if not stage.GetPrimAtPath(sensor_path).IsValid():
+            sensor = LidarRtx(
+                prim_path=sensor_path,
+                translation=np.array([0.0, 0.0, 0.0], dtype=np.float64),
+                orientation=np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64),
+                config_file_name=config_name,
+                **{"omni:sensor:Core:scanRateBaseHz": float(scan_rate_hz)},
+            )
+        else:
+            sensor = LidarRtx(prim_path=sensor_path)
+
+        sensor.initialize(SimulationManager.get_physics_sim_view())
+
+        sensor.attach_annotator("IsaacCreateRTXLidarScanBuffer")
+
+        if debug:
+            sensor.enable_visualization()
+
+        env._rtx_lidars[i] = sensor
+        env._rtx_lidar_paths[i] = sensor_path

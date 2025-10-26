@@ -25,7 +25,7 @@ from isaaclab_custom_ext.custom_env_2.objects import TARGET_MARKER #, OBSTACLE_C
 
 # import of sensors
 import isaaclab.sim as sim_utils
-from isaaclab.sensors import CameraCfg
+from isaaclab.sensors import CameraCfg, patterns
 from isaaclab.sensors.ray_caster.patterns import LidarPatternCfg
 from isaaclab.sensors.ray_caster import RayCasterCfg
 from isaaclab.sensors.imu import ImuCfg
@@ -36,9 +36,9 @@ from isaaclab.sim.spawners.from_files.from_files_cfg import  UsdFileCfg
 
 import numpy as np
 import omni
-from isaacsim.sensors.rtx import LidarRtx
+from isaacsim.sensors.rtx import LidarRtx, IsaacSensorCreateRtxLidar
 from .custom_commands_cfg import TestCommandsCfg
-
+from pxr import Gf, Sdf, Usd, UsdGeom
 
 
 MAX_OBS = 40
@@ -54,7 +54,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # Scene
         
         self.scene.robot = MATH_G1_23DF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-        self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
+        
         
         # additional items
 
@@ -117,7 +117,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         #lidar_mount = "{ENV_REGEX_NS}/Robot/torso_link/mid360_link"
         #imu_mount   = "{ENV_REGEX_NS}/Robot/torso_link/imu_in_torso"
 
-        '''
+        
         # 1 === FRONT RGB-D CAMERA  ===
         cam_spawn = sim_utils.PinholeCameraCfg(  # USD Camera spawner
             focal_length=0.88,                   
@@ -144,9 +144,17 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
 #        self.scene.rtx_lidar_top = SceneEntityCfg()
 #            prim_path="{ENV_REGEX_NS}/Robot/torso_link/rtx_lidar_top"
 #        )
-#        #########################################################################        
-        
-  
+#        #########################################################################   
+        self.scene.height_scanner = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/torso_link",
+            update_period=0.02,
+            offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+            ray_alignment="yaw",
+            pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.0, 1.0]),
+            debug_vis=True,
+            mesh_prim_paths=["/World/ground"],
+        )
+
 
         # === IMU inside of torso ===
         self.scene.imu = ImuCfg(
@@ -160,7 +168,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
             debug_vis=False
             
         )       
-        '''
+        
 
 
         

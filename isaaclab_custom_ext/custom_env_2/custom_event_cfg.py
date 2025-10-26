@@ -3,14 +3,21 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaaclab_custom_ext.custom_env_2.events import respawn_target, respawn_reached_targets 
+from isaaclab_custom_ext.custom_env_2.events import respawn_target, respawn_reached_targets, spawn_rtx_lidar_event
 
 
 
 @configclass
 class EventCfg:
     """Configuration for events."""
-    
+#    event_spawn_lidar = EventTerm(
+#        func=spawn_rtx_lidar_event,
+#        mode="startup",
+#        params={ 'term_cfg' : None,
+#                "debug" : True, 
+#                "sensor_name": "RtxLidar",
+#                },
+#    )
 
 
     # startup
@@ -86,7 +93,7 @@ class EventCfg:
     spawn_target_on_reset = EventTerm(
         func=respawn_target, 
         mode="reset",
-        params={"r_min": 2.0, "r_max": 8.0, "z": 0.05},
+        params={"r_min": 2.0, "r_max": 5.0, "z": 0.05},
     )
 
 
@@ -102,7 +109,7 @@ class EventCfg:
         func=respawn_reached_targets,
         mode="interval",
         interval_range_s=(1, 1),
-        params={"reach_radius": 0.6, "r_min": 4.0, "r_max": 20.0, "z": 0.05},
+        params={"reach_radius": 0.6, "r_min": 4.0, "r_max": 5.0, "z": 0.05},
     )        
     
 
