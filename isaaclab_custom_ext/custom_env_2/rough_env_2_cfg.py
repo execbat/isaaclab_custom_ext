@@ -102,8 +102,8 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
 	
 
         # Commands
-        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 2.0)
-        self.commands.base_velocity.ranges.lin_vel_y = (-0.0, 0.0)
+        self.commands.base_velocity.ranges.lin_vel_x = (-1.0, 1.0)
+        self.commands.base_velocity.ranges.lin_vel_y = (-1.0, 1.0)
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
 
         # terminations
@@ -117,7 +117,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
         #lidar_mount = "{ENV_REGEX_NS}/Robot/torso_link/mid360_link"
         #imu_mount   = "{ENV_REGEX_NS}/Robot/torso_link/imu_in_torso"
 
-        
+        '''
         # 1 === FRONT RGB-D CAMERA  ===
         cam_spawn = sim_utils.PinholeCameraCfg(  # USD Camera spawner
             focal_length=0.88,                   
@@ -125,6 +125,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
             clipping_range=(0.1, 15.0),
         )
 
+       
         self.scene.front_camera = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link/d435_link/camera",  
             offset=CameraCfg.OffsetCfg(pos=(0, 0, 0), rot=(1, 0, 0, 0), convention="world"), # Offset is d435_link frame in reference to torso_link from urdf
@@ -136,7 +137,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
             update_latest_camera_pose=True,
             depth_clipping_behavior="max",
         )
-
+        '''
 
 #       ##########################################################################        
         # Lazy registration of ==RTX LIDAR== as it should be created after building all environments. 
@@ -151,11 +152,11 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
             offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
             ray_alignment="yaw",
             pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.0, 1.0]),
-            debug_vis=True,
+            debug_vis=False,
             mesh_prim_paths=["/World/ground"],
         )
 
-
+        '''
         # === IMU inside of torso ===
         self.scene.imu = ImuCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
@@ -168,7 +169,7 @@ class G1RoughEnv2Cfg(CustomLocomotionVelocityRoughEnvCfg):
             debug_vis=False
             
         )       
-        
+        '''
 
 
         
