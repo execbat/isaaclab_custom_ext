@@ -106,7 +106,7 @@ class G1Rewards(RewardsCfg):
     
     lateral_slip = RewTerm( 
         func=lateral_slip_penalty,
-        weight=-01,
+        weight=-0.1,
         params={"command_name": "base_velocity"}
     )    
     
