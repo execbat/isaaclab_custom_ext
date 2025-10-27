@@ -65,7 +65,7 @@ class G1Rewards(RewardsCfg):
         func=pelvis_height_target_reward, weight=0.5)    
 
 
-    termination_penalty = RewTerm(func=mdp.is_terminated,    weight=-200.0)  # -200.0
+    termination_penalty = RewTerm(func=mdp.is_terminated,    weight=-20.0)  # -200.0
     lin_vel_z_l2 =        RewTerm(func=mdp.lin_vel_z_l2,     weight=-0.002)
     ang_vel_xy_l2 =       RewTerm(func=mdp.ang_vel_xy_l2,    weight=-0.00005)
     
@@ -128,7 +128,7 @@ class G1Rewards(RewardsCfg):
     )
        
     body_lin_acc_l2 = RewTerm(func=mdp.body_lin_acc_l2, weight=-2.5e-7)   
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-4)
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2)
     
     idle_penalty = RewTerm(
         func = idle_penalty,
