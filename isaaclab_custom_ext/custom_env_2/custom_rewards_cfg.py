@@ -25,7 +25,7 @@ class G1Rewards(RewardsCfg):
 #            std=math.sqrt(0.25),
 #        ),
 #    )
-    
+    '''
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
         weight=0.15,
@@ -35,11 +35,12 @@ class G1Rewards(RewardsCfg):
             "threshold": 0.5,
         },
     )    
-
+    '''
     action_rate_l2 =      RewTerm(func=mdp.action_rate_l2,   weight=-0.0015)
     dof_torques_l2 =      RewTerm(func=mdp.joint_torques_l2, weight=-1e-5)
     joint_vel_l2 =        RewTerm(func=mdp.joint_vel_l2,     weight= -1.0e-5)
     dof_acc_l2 =          RewTerm(func=mdp.joint_acc_l2,     weight=-1e-07)
+    '''
     feet_slide = RewTerm(
         func=mdp.feet_slide,
         weight=-0.1, 
@@ -60,7 +61,7 @@ class G1Rewards(RewardsCfg):
         # "store_key": "_feet_prev_contact__foot"
         }
     )
-    
+    '''
     pelvis_height_target_reward = RewTerm( 
         func=pelvis_height_target_reward, weight=0.5)    
 
@@ -96,7 +97,7 @@ class G1Rewards(RewardsCfg):
         weight=-0.0001,
         params={"command_name": "base_velocity"}
     )    
- 
+    '''
     heading_align = RewTerm( 
         func=heading_alignment_reward,
         weight=0.1,
@@ -128,6 +129,7 @@ class G1Rewards(RewardsCfg):
     )
        
     body_lin_acc_l2 = RewTerm(func=mdp.body_lin_acc_l2, weight=-2.5e-7)   
+    '''
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2)
     
     idle_penalty = RewTerm(
