@@ -217,13 +217,14 @@ class G1RoughEnv2Cfg_PLAY(G1RoughEnv2Cfg):
         self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis"]	
 
         # Commands
-        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 2.0)
+        self.commands.base_velocity.ranges.lin_vel_x = (-1.0, 1.0)
         self.commands.base_velocity.ranges.lin_vel_y = (-0.0, 0.0)
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
         
         # switch ON debug vis
-        self.observations.policy.rtx_lidar_points.params["debug"] = True
-        self.scene.imu.debug_vis = True
+        # self.observations.policy.rtx_lidar_points.params["debug"] = True
+        # self.scene.imu.debug_vis = True
+        self.scene.height_scanner.debug_vis=True
 
         
     def get_metrics(self) -> dict:
