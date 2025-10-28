@@ -5,7 +5,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 import math
 
-from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_motion_penalty, lateral_slip_penalty, heading_alignment_reward, leg_pelvis_torso_coalignment_reward, idle_penalty, angvel_flat_l2_product
+from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_motion_penalty, lateral_slip_penalty, heading_alignment_reward, leg_pelvis_torso_coalignment_reward, idle_penalty, angvel_flat_l2_product, alternating_airtime_reward
 
 @configclass
 class G1Rewards(RewardsCfg):
@@ -25,7 +25,7 @@ class G1Rewards(RewardsCfg):
 #            std=math.sqrt(0.25),
 #        ),
 #    )
-    
+    '''
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
         weight=0.0,
@@ -46,13 +46,13 @@ class G1Rewards(RewardsCfg):
             "threshold": 0.5,
         },
     )  
-      
+    '''  
     
     action_rate_l2 =      RewTerm(func=mdp.action_rate_l2,   weight=-0.01)
     dof_torques_l2 =      RewTerm(func=mdp.joint_torques_l2, weight=-1e-5)
     joint_vel_l2 =        RewTerm(func=mdp.joint_vel_l2,     weight= -1.0e-3)
     dof_acc_l2 =          RewTerm(func=mdp.joint_acc_l2,     weight=-2e-07)
-    
+    '''
     feet_slide = RewTerm(
         func=mdp.feet_slide,
         weight=-0.1, 
@@ -73,7 +73,7 @@ class G1Rewards(RewardsCfg):
         # "store_key": "_feet_prev_contact__foot"
         }
     )
-    '''
+    
     pelvis_height_target_reward = RewTerm( 
         func=pelvis_height_target_reward, weight=0.5)    
 
@@ -109,13 +109,13 @@ class G1Rewards(RewardsCfg):
         weight=-0.1,
         params={"command_name": "base_velocity"}
     )    
-    
+    '''
     heading_align = RewTerm( 
         func=heading_alignment_reward,
         weight=0.5,
         params={"command_name": "base_velocity", "lin_cmd_threshold": 0.05, "beta": 4.0},
     )    
-    
+    '''
     coalignment_chain = RewTerm( 
         func=leg_pelvis_torso_coalignment_reward,
         weight=0.5,  # 2
@@ -139,7 +139,7 @@ class G1Rewards(RewardsCfg):
             "w_upright": 0.3, 
         },
     )
-       
+    
     body_lin_acc_l2 = RewTerm(func=mdp.body_lin_acc_l2, weight=-2.5e-6)   
     
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-0.6)
@@ -155,4 +155,33 @@ class G1Rewards(RewardsCfg):
             "scale": 1.0,
         }
     )                
-      
+
+
+    alt_airtime_term = RewTerm(
+        func=alternating_airtime_reward,
+        weight=0.5,
+        params={
+            "command_name": "base_velocity",
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
+            "asset_cfg":  SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
+
+            # --- команды и гейты ---
+            "lin_deadband": 0.03,                 # м/с: «команда ≈ 0»
+            "ang_deadband": 0.03,                 # рад/с
+
+            # --- контакты ---
+            "contact_force_threshold": 5.0,       # Н: контакт считается, если |F| > thr
+            "use_history": True,                  # берём max по истории сенсора (устойчивее к шуму)
+
+            # --- таргет по времени полёта ноги ---
+            "target_swing_time": 0.8,             # сек — целевое время «нога в воздухе»
+            "swing_sigma": 0.10,                  # сек — ширина колокола для exp(−(t−T)^2/σ^2)
+
+            # --- веса и штрафы ---
+            "idle_double_support_bonus_val": 1.0, # бонус в покое за двухопорие
+            "touchdown_bonus": 1.0,               # бонус в момент касания, если swing≈таргету
+            "shaping_weight": 0.3,                # мягкий бонус во время полёта (каждый шаг)
+            "same_lead_penalty": 0.5,             # штраф, если подряд «ведёт» одна и та же нога
+            "flight_penalty": 1.0,                # штраф, если обе ноги в воздухе при движении
+                },
+            )      

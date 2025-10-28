@@ -377,3 +377,171 @@ def angvel_flat_l2_product(
     
 
     return ang_r * lin_r
+    
+def alternating_airtime_reward(
+    env,
+    command_name: str = "base_velocity",
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
+    asset_cfg:  SceneEntityCfg = SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),    
+
+    # --- команды и гейты ---
+    lin_deadband: float = 0.03,                 # м/с: «команда ≈ 0»
+    ang_deadband: float = 0.03,                 # рад/с
+
+    # --- контакты ---
+    contact_force_threshold: float = 5.0,       # Н: контакт считается, если |F| > thr
+    use_history: bool = True,                   # берём max по истории сенсора (устойчивее к шуму)
+
+    # --- таргет по времени полёта ноги ---
+    target_swing_time: float = 0.35,            # сек — целевое время «нога в воздухе»
+    swing_sigma: float = 0.10,                  # сек — ширина колокола для exp(−(t−T)^2/σ^2)
+
+    # --- веса и штрафы ---
+    idle_double_support_bonus_val: float = 1.0, # бонус в покое за двухопорие
+    touchdown_bonus: float = 1.0,               # бонус в момент касания, если swing≈таргету
+    shaping_weight: float = 0.3,                # мягкий бонус во время полёта (каждый шаг)
+    same_lead_penalty: float = 0.5,             # штраф, если подряд «ведёт» одна и та же нога
+    flight_penalty: float = 1.0,                # штраф, если обе ноги в воздухе при движении
+):
+    """
+    Возвращает тензор [num_envs] с наградой.
+
+    Ожидания:
+      • sensor_cfg.body_ids упорядочены как [LeftFoot, RightFoot] (анкл/стопа).
+      • Команда скорости доступна в env.command_manager.get_term(command_name).command (N,3): [vx, vy, wz].
+    """
+    device = env.device
+    N = env.num_envs
+    robot = env.scene[asset_cfg.name]
+    cs: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+    # --- dt среды (падение к 1/60 при отсутствии явного dt) ---
+    dt = env.sim.cfg.dt * env.cfg.decimation 
+    # print(f'dt {dt}')
+    # --- команда движения и гейты ---
+    cmd = env.command_manager.get_term(command_name).command  # (N,3)
+    cmd = torch.as_tensor(cmd, device=device, dtype=torch.float32)
+    lin_mag = cmd[:, :2].norm(dim=1)
+    ang_mag = cmd[:, 2].abs() if cmd.shape[1] >= 3 else torch.zeros_like(lin_mag)
+
+    near_zero = (lin_mag < lin_deadband) & (ang_mag < ang_deadband)   # покой
+    moving    = ~near_zero                                            # движение
+
+    # --- контакты по двум стопам (устойчиво к шуму через .amax по истории) ---
+    if use_history:
+        f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]  # (N,H,2,3)
+        fmag   = f_hist.norm(dim=-1).amax(dim=1)                              # (N,2)
+    else:
+        f_now  = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]             # (N,2,3)
+        fmag   = f_now.norm(dim=-1)                                          # (N,2)
+
+    Lc = fmag[:, 0] > contact_force_threshold   # (N,)
+    Rc = fmag[:, 1] > contact_force_threshold   # (N,)
+    both_down = Lc & Rc
+    any_down  = Lc | Rc
+    flight    = ~any_down
+
+    # --- инициализация/хранение состояния per-env ---
+    _need_init = not all(hasattr(env, a) for a in [
+        "_g1_prev_Lc", "_g1_prev_Rc", "_g1_air_L", "_g1_air_R",
+        "_g1_t_air_L", "_g1_t_air_R", "_g1_last_lead"
+    ])
+    if _need_init:
+        env._g1_prev_Lc  = torch.zeros(N, dtype=torch.bool, device=device)
+        env._g1_prev_Rc  = torch.zeros(N, dtype=torch.bool, device=device)
+        env._g1_air_L    = torch.zeros(N, dtype=torch.bool, device=device)   # сейчас в воздухе?
+        env._g1_air_R    = torch.zeros(N, dtype=torch.bool, device=device)
+        env._g1_t_air_L  = torch.zeros(N, dtype=torch.float32, device=device) # накопленное время в воздухе
+        env._g1_t_air_R  = torch.zeros(N, dtype=torch.float32, device=device)
+        # кто был «ведущей» последней (0=L, 1=R, 2=нет/ещё не было)
+        env._g1_last_lead = torch.full((N,), 2, dtype=torch.long, device=device)
+
+    # сброс состояния на окончаниях эпизодов
+    resets = (env.termination_manager.terminated | env.termination_manager.time_outs)
+    if resets.any():
+        env._g1_prev_Lc[resets]  = Lc[resets]
+        env._g1_prev_Rc[resets]  = Rc[resets]
+        env._g1_air_L[resets]    = ~Lc[resets]
+        env._g1_air_R[resets]    = ~Rc[resets]
+        env._g1_t_air_L[resets]  = 0.0
+        env._g1_t_air_R[resets]  = 0.0
+        env._g1_last_lead[resets]= 2
+
+    # --- события liftoff/touchdown ---
+    liftoff_L  = (~Lc) & env._g1_prev_Lc    # ушла в воздух
+    liftoff_R  = (~Rc) & env._g1_prev_Rc
+    touchdown_L= Lc & (~env._g1_prev_Lc)    # приземлилась
+    touchdown_R= Rc & (~env._g1_prev_Rc)
+
+    # --- обновить флаги «в воздухе» ---
+    env._g1_air_L = ~Lc
+    env._g1_air_R = ~Rc
+
+    # --- инкремент времени «в воздухе» ---
+    env._g1_t_air_L = torch.where(env._g1_air_L, env._g1_t_air_L + dt, env._g1_t_air_L)
+    env._g1_t_air_R = torch.where(env._g1_air_R, env._g1_t_air_R + dt, env._g1_t_air_R)
+
+    # при liftoff — обнуляем таймер соответствующей ноги
+    env._g1_t_air_L = torch.where(liftoff_L, torch.zeros_like(env._g1_t_air_L), env._g1_t_air_L)
+    env._g1_t_air_R = torch.where(liftoff_R, torch.zeros_like(env._g1_t_air_R), env._g1_t_air_R)
+
+    # --- базовая награда ---
+    reward = torch.zeros(N, dtype=torch.float32, device=device)
+
+    # 1) ПОКОЙ: бонус за двухопорие
+    reward = reward + idle_double_support_bonus_val * (near_zero & both_down).float()
+
+    # 2) ДВИЖЕНИЕ: чередование + таргет свинга
+    if moving.any():
+        # (a) штраф за «полёт корпуса» в движении (обе ноги в воздухе)
+        reward = reward - flight_penalty * (moving & flight).float()
+
+        # (b) touchdown-бонус: exp(-(t−T)^2/σ^2)
+        def touchdown_score(t_air):
+            # гауссиан без 0.5: пик = 1.0 при t==target
+            return torch.exp(-((t_air - target_swing_time) ** 2) / (swing_sigma ** 2 + 1e-12))
+
+        td_L = moving & touchdown_L
+        td_R = moving & touchdown_R
+
+        score_L = torch.zeros(N, device=device)
+        score_R = torch.zeros(N, device=device)
+        if td_L.any():
+            score_L[td_L] = touchdown_score(env._g1_t_air_L[td_L])
+        if td_R.any():
+            score_R[td_R] = touchdown_score(env._g1_t_air_R[td_R])
+
+        # чередование: если тот же лидер подряд — штраф
+        # лидер — та нога, которая только что завершила свинг (touchdown)
+        new_lead = torch.where(td_R, torch.ones(N, device=device, dtype=torch.long),
+                       torch.where(td_L, torch.zeros(N, device=device, dtype=torch.long),
+                                   torch.full((N,), 2, device=device, dtype=torch.long)))  # 2: «нет события»
+
+        same_lead = (new_lead != 2) & (env._g1_last_lead != 2) & (new_lead == env._g1_last_lead)
+        alt_ok    = (new_lead != 2) & ((env._g1_last_lead == 2) | (new_lead != env._g1_last_lead))
+
+        # применяем бонус/штраф только на тех env, где был touchdown
+        td_any = td_L | td_R
+        td_reward = touchdown_bonus * (score_L + score_R)
+        td_reward = torch.where(same_lead, td_reward - same_lead_penalty, td_reward)
+        reward = reward + torch.where(td_any, td_reward, torch.zeros_like(td_reward))
+
+        # обновить last_lead там, где был touchdown
+        env._g1_last_lead = torch.where(td_L, torch.zeros_like(env._g1_last_lead),
+                                 torch.where(td_R, torch.ones_like(env._g1_last_lead),
+                                             env._g1_last_lead))
+
+        # (c) «шейпинг» во время полёта — приближать длительность к target
+        # текущий активный свинг таймер (берём max из левой/правой, но только когда ровно одна в воздухе)
+        single_support_air = env._g1_air_L ^ env._g1_air_R
+        cur_t = torch.where(env._g1_air_L, env._g1_t_air_L,
+                     torch.where(env._g1_air_R, env._g1_t_air_R, torch.zeros(N, device=device)))
+        shaping = torch.exp(-((cur_t - target_swing_time) ** 2) / (swing_sigma ** 2 + 1e-12))
+        reward = reward + shaping_weight * (moving & single_support_air).float() * shaping
+
+    # --- обновить «предыдущие контакты» ---
+    env._g1_prev_Lc = Lc
+    env._g1_prev_Rc = Rc
+    
+    # print(f"alternating_airtime_reward: {reward}")
+    return reward    
