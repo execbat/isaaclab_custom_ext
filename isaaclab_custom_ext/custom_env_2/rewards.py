@@ -762,4 +762,60 @@ def com_projection_reward(
         reward = reward - no_support_penalty * (~has_support).float()
     # print(f"reward: {reward}")
     return reward
-          
+
+def step_width_reward(
+    env,
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
+    asset_cfg:  SceneEntityCfg = SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
+
+    # — nominal value and sensitivity —
+    nominal_width: float = 0.20,      # m: desired distance between feet (or maximum without penalty)
+    beta: float = 20.0,               # r = exp(-beta * excess^2)
+
+    # — contacts and gates —
+    contact_force_threshold: float = 5.0,
+    use_history: bool = True,
+    gate_by_support: bool = True,     # If True, we don't penalize when both legs are in the air.
+):
+    """
+    Returns an [N] tensor with a reward for the "step width."
+    • sensor_cfg.body_ids are expected in the order [LeftFoot, RightFoot].
+    • Foot positions are taken from robot.data.body_state_w (world), and the XY distance is calculated.
+    """
+    device = env.device
+    N = env.num_envs
+    robot = env.scene[asset_cfg.name]
+    cs: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+    # Stop positions (world), we take XY projections
+    body_pos_w = robot.data.body_state_w[:, sensor_cfg.body_ids, :3]  # (N,2,3)
+    L_xy = body_pos_w[:, 0, :2]                                       # (N,2)
+    R_xy = body_pos_w[:, 1, :2]                                       # (N,2)
+
+    # Distance between feet on the ground
+    dist_xy = (L_xy - R_xy).norm(dim=1)                               # (N,)
+
+    # Excess over par
+    excess = torch.clamp(dist_xy - nominal_width, min=0.0)            # (N,)
+    mse = excess ** 2
+
+    reward = torch.exp(-beta * mse)                                   # (N,)
+
+    # Optional: No penalty when both legs are in the air (no support)
+    if gate_by_support:
+        if use_history:
+            f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]  # (N,H,2,3)
+            fmag   = f_hist.norm(dim=-1).amax(dim=1)                              # (N,2)
+        else:
+            f_now  = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]             # (N,2,3)
+            fmag   = f_now.norm(dim=-1)                                          # (N,2)
+
+        Lc = fmag[:, 0] > contact_force_threshold
+        Rc = fmag[:, 1] > contact_force_threshold
+        any_down = Lc | Rc
+
+        # where there is no support, we set the reward to 1 (neutral) to avoid penalties in flight
+        reward = torch.where(any_down, reward, torch.ones_like(reward))
+    
+    # print(f"reward: {reward}")
+    return reward          
