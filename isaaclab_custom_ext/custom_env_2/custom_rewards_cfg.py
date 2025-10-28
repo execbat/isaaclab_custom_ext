@@ -5,7 +5,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 import math
 
-from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_motion_penalty, lateral_slip_penalty, heading_alignment_reward, leg_pelvis_torso_coalignment_reward, idle_penalty, angvel_flat_l2_product, alternating_airtime_reward
+from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_motion_penalty, lateral_slip_penalty, heading_alignment_reward, leg_pelvis_torso_coalignment_reward, idle_penalty, angvel_flat_l2_product, alternating_airtime_reward, step_phase_reward, com_projection_reward
 
 @configclass
 class G1Rewards(RewardsCfg):
@@ -156,7 +156,7 @@ class G1Rewards(RewardsCfg):
         }
     )                
 
-
+    '''
     alt_airtime_term = RewTerm(
         func=alternating_airtime_reward,
         weight=0.5,
@@ -165,23 +165,59 @@ class G1Rewards(RewardsCfg):
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
             "asset_cfg":  SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
 
-            # --- команды и гейты ---
-            "lin_deadband": 0.03,                 # м/с: «команда ≈ 0»
-            "ang_deadband": 0.03,                 # рад/с
+            # --- commands and gates ---
+            "lin_deadband": 0.03,                 # m/s: "command ≈ 0"
+            "ang_deadband": 0.03,                 # rad/s
 
-            # --- контакты ---
-            "contact_force_threshold": 5.0,       # Н: контакт считается, если |F| > thr
-            "use_history": True,                  # берём max по истории сенсора (устойчивее к шуму)
+            # --- contacts ---
+            "contact_force_threshold": 5.0,       # H: contact is considered if |F| > thr
+            "use_history": True,                  # take Max based on the sensor history (resistant to noise)
 
-            # --- таргет по времени полёта ноги ---
-            "target_swing_time": 0.8,             # сек — целевое время «нога в воздухе»
-            "swing_sigma": 0.10,                  # сек — ширина колокола для exp(−(t−T)^2/σ^2)
+            # --- target by leg flight time ---
+            "target_swing_time": 0.8,             # sec - target time "leg in the air"
+            "swing_sigma": 0.10,                  # sec is the bell width for exp(−(t−T)^2/σ^2)
 
-            # --- веса и штрафы ---
-            "idle_double_support_bonus_val": 1.0, # бонус в покое за двухопорие
-            "touchdown_bonus": 1.0,               # бонус в момент касания, если swing≈таргету
-            "shaping_weight": 0.3,                # мягкий бонус во время полёта (каждый шаг)
-            "same_lead_penalty": 0.5,             # штраф, если подряд «ведёт» одна и та же нога
-            "flight_penalty": 1.0,                # штраф, если обе ноги в воздухе при движении
+            # --- weights and fines ---
+            "idle_double_support_bonus_val": 1.0, # bonus at rest for bipedalism
+            "touchdown_bonus": 1.0,               # bonus at the moment of touch, if swing≈target
+            "shaping_weight": 0.3,                # soft bonus during the flight (every step)
+            "same_lead_penalty": 0.5,             # penalty if the same leg "leads" in a row
+            "flight_penalty": 1.0,                # penalty if both legs are in the air while moving
                 },
-            )      
+    )   
+    '''
+            
+    step_phase_reward = RewTerm(
+        func=step_phase_reward,
+        weight=1.0,   
+        params={
+        "command_name": "base_velocity",
+        "sensor_cfg": SceneEntityCfg("contact_forces",
+                                     body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
+        "lin_deadband": 0.03,
+        "amp_ref": 800.0,             
+        "freq_gain_hz_per_mps": 2.0,  # at |v|=0.5 -> 1 Hz, at 1.0 -> 2 Hz
+        "mse_beta": 5.0,
+        "use_history": True,
+        },
+    )  
+    
+    com_reward = RewTerm(
+        func=com_projection_reward,
+        weight=1.0,  
+        params={
+        "command_name": "base_velocity",
+        "sensor_cfg": SceneEntityCfg("contact_forces",
+                                     body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
+        "asset_cfg":  SceneEntityCfg("robot",
+                                     body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
+        "lin_deadband": 0.03,
+        "contact_force_threshold": 5.0,
+        "use_history": True,
+        "com_offset_gain": 0.15,   # at |v|=1 m/s we aim for a displacement of ≈0.15 m
+        "max_offset": 0.25,
+        "beta": 10.0,
+        "no_support_penalty": 0.0, # if desired, you can enter a small penalty, for example 0.1
+        },
+    )
+ 

@@ -384,50 +384,50 @@ def alternating_airtime_reward(
     sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
     asset_cfg:  SceneEntityCfg = SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),    
 
-    # --- команды и гейты ---
-    lin_deadband: float = 0.03,                 # м/с: «команда ≈ 0»
-    ang_deadband: float = 0.03,                 # рад/с
+    # --- commands and gates ---
+    lin_deadband: float = 0.03,                 # m/s: "command ≈ 0"
+    ang_deadband: float = 0.03,                 # rad/s
 
-    # --- контакты ---
-    contact_force_threshold: float = 5.0,       # Н: контакт считается, если |F| > thr
-    use_history: bool = True,                   # берём max по истории сенсора (устойчивее к шуму)
+    # --- contacts ---
+    contact_force_threshold: float = 5.0,       # H: contact is considered if |F| > thr
+    use_history: bool = True,                   # we take the max from the sensor history (more resistant to noise)
 
-    # --- таргет по времени полёта ноги ---
-    target_swing_time: float = 0.35,            # сек — целевое время «нога в воздухе»
-    swing_sigma: float = 0.10,                  # сек — ширина колокола для exp(−(t−T)^2/σ^2)
+    # --- target by leg flight time ---
+    target_swing_time: float = 0.35,            # sec – target time for “leg in the air”
+    swing_sigma: float = 0.10,                  # sec — bell width for exp(−(t−T)^2/σ^2)
 
-    # --- веса и штрафы ---
-    idle_double_support_bonus_val: float = 1.0, # бонус в покое за двухопорие
-    touchdown_bonus: float = 1.0,               # бонус в момент касания, если swing≈таргету
-    shaping_weight: float = 0.3,                # мягкий бонус во время полёта (каждый шаг)
-    same_lead_penalty: float = 0.5,             # штраф, если подряд «ведёт» одна и та же нога
-    flight_penalty: float = 1.0,                # штраф, если обе ноги в воздухе при движении
+    # --- weights and fines ---
+    idle_double_support_bonus_val: float = 1.0, # bonus at rest for two-legged
+    touchdown_bonus: float = 1.0,               # bonus at the moment of touch, if swing≈target
+    shaping_weight: float = 0.3,                # soft bonus during flight (every step)
+    same_lead_penalty: float = 0.5,             # penalty if the same leg "leads" in a row
+    flight_penalty: float = 1.0,                # penalty if both legs are in the air while moving
 ):
     """
-    Возвращает тензор [num_envs] с наградой.
+    Returns a tensor [num_envs] with the reward.
 
-    Ожидания:
-      • sensor_cfg.body_ids упорядочены как [LeftFoot, RightFoot] (анкл/стопа).
-      • Команда скорости доступна в env.command_manager.get_term(command_name).command (N,3): [vx, vy, wz].
+    Expectations:
+    • sensor_cfg.body_ids are ordered as [LeftFoot, RightFoot] (ankle/foot).
+    • The velocity command is available in env.command_manager.get_term(command_name).command (N,3): [vx, vy, wz].
     """
     device = env.device
     N = env.num_envs
     robot = env.scene[asset_cfg.name]
     cs: ContactSensor = env.scene.sensors[sensor_cfg.name]
 
-    # --- dt среды (падение к 1/60 при отсутствии явного dt) ---
+    # --- dt of environment (drop to 1/60 in the absence of explicit dt) ---
     dt = env.sim.cfg.dt * env.cfg.decimation 
     # print(f'dt {dt}')
-    # --- команда движения и гейты ---
+    # --- movement command and gates ---
     cmd = env.command_manager.get_term(command_name).command  # (N,3)
     cmd = torch.as_tensor(cmd, device=device, dtype=torch.float32)
     lin_mag = cmd[:, :2].norm(dim=1)
     ang_mag = cmd[:, 2].abs() if cmd.shape[1] >= 3 else torch.zeros_like(lin_mag)
 
-    near_zero = (lin_mag < lin_deadband) & (ang_mag < ang_deadband)   # покой
-    moving    = ~near_zero                                            # движение
+    near_zero = (lin_mag < lin_deadband) & (ang_mag < ang_deadband)   # no movement
+    moving    = ~near_zero                                            # movement
 
-    # --- контакты по двум стопам (устойчиво к шуму через .amax по истории) ---
+    # --- contacts on two stops (resistant to noise via .amax according to history) ---
     if use_history:
         f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]  # (N,H,2,3)
         fmag   = f_hist.norm(dim=-1).amax(dim=1)                              # (N,2)
@@ -441,7 +441,7 @@ def alternating_airtime_reward(
     any_down  = Lc | Rc
     flight    = ~any_down
 
-    # --- инициализация/хранение состояния per-env ---
+    # --- per-env initialization/state storage ---
     _need_init = not all(hasattr(env, a) for a in [
         "_g1_prev_Lc", "_g1_prev_Rc", "_g1_air_L", "_g1_air_R",
         "_g1_t_air_L", "_g1_t_air_R", "_g1_last_lead"
@@ -449,14 +449,14 @@ def alternating_airtime_reward(
     if _need_init:
         env._g1_prev_Lc  = torch.zeros(N, dtype=torch.bool, device=device)
         env._g1_prev_Rc  = torch.zeros(N, dtype=torch.bool, device=device)
-        env._g1_air_L    = torch.zeros(N, dtype=torch.bool, device=device)   # сейчас в воздухе?
+        env._g1_air_L    = torch.zeros(N, dtype=torch.bool, device=device)    # is in the air now?
         env._g1_air_R    = torch.zeros(N, dtype=torch.bool, device=device)
-        env._g1_t_air_L  = torch.zeros(N, dtype=torch.float32, device=device) # накопленное время в воздухе
+        env._g1_t_air_L  = torch.zeros(N, dtype=torch.float32, device=device) #  accumulated air time
         env._g1_t_air_R  = torch.zeros(N, dtype=torch.float32, device=device)
-        # кто был «ведущей» последней (0=L, 1=R, 2=нет/ещё не было)
+        # who was the last "leader" (0=L, 1=R, 2=no/has not been yet)
         env._g1_last_lead = torch.full((N,), 2, dtype=torch.long, device=device)
 
-    # сброс состояния на окончаниях эпизодов
+    # reset state at the end of episodes
     resets = (env.termination_manager.terminated | env.termination_manager.time_outs)
     if resets.any():
         env._g1_prev_Lc[resets]  = Lc[resets]
@@ -467,38 +467,38 @@ def alternating_airtime_reward(
         env._g1_t_air_R[resets]  = 0.0
         env._g1_last_lead[resets]= 2
 
-    # --- события liftoff/touchdown ---
-    liftoff_L  = (~Lc) & env._g1_prev_Lc    # ушла в воздух
+    # --- liftoff/touchdown events ---
+    liftoff_L  = (~Lc) & env._g1_prev_Lc    # went into the air
     liftoff_R  = (~Rc) & env._g1_prev_Rc
-    touchdown_L= Lc & (~env._g1_prev_Lc)    # приземлилась
+    touchdown_L= Lc & (~env._g1_prev_Lc)    # landed
     touchdown_R= Rc & (~env._g1_prev_Rc)
 
-    # --- обновить флаги «в воздухе» ---
+    # --- update flags "in the air" ---
     env._g1_air_L = ~Lc
     env._g1_air_R = ~Rc
 
-    # --- инкремент времени «в воздухе» ---
+    # --- increment of time "in the air" ---
     env._g1_t_air_L = torch.where(env._g1_air_L, env._g1_t_air_L + dt, env._g1_t_air_L)
     env._g1_t_air_R = torch.where(env._g1_air_R, env._g1_t_air_R + dt, env._g1_t_air_R)
 
-    # при liftoff — обнуляем таймер соответствующей ноги
+    # on liftoff, reset the timer for the corresponding leg
     env._g1_t_air_L = torch.where(liftoff_L, torch.zeros_like(env._g1_t_air_L), env._g1_t_air_L)
     env._g1_t_air_R = torch.where(liftoff_R, torch.zeros_like(env._g1_t_air_R), env._g1_t_air_R)
 
-    # --- базовая награда ---
+    # --- base reward ---
     reward = torch.zeros(N, dtype=torch.float32, device=device)
 
-    # 1) ПОКОЙ: бонус за двухопорие
+    #1) REST: bonus for double support
     reward = reward + idle_double_support_bonus_val * (near_zero & both_down).float()
 
-    # 2) ДВИЖЕНИЕ: чередование + таргет свинга
+    #2) MOVEMENT: Alternation + Target Swing
     if moving.any():
-        # (a) штраф за «полёт корпуса» в движении (обе ноги в воздухе)
+        # (a) penalty for "flying the body" in movement (both legs in the air)
         reward = reward - flight_penalty * (moving & flight).float()
 
-        # (b) touchdown-бонус: exp(-(t−T)^2/σ^2)
+        # (b) touchdown bonus: exp(-(t−T)^2/σ^2)
         def touchdown_score(t_air):
-            # гауссиан без 0.5: пик = 1.0 при t==target
+            # Gaussian without 0.5: peak = 1.0 at t==target
             return torch.exp(-((t_air - target_swing_time) ** 2) / (swing_sigma ** 2 + 1e-12))
 
         td_L = moving & touchdown_L
@@ -511,37 +511,255 @@ def alternating_airtime_reward(
         if td_R.any():
             score_R[td_R] = touchdown_score(env._g1_t_air_R[td_R])
 
-        # чередование: если тот же лидер подряд — штраф
-        # лидер — та нога, которая только что завершила свинг (touchdown)
+        # alternation: if the same leader in a row - penalty
+        # leader - the leg that just completed the swing (touchdown)
         new_lead = torch.where(td_R, torch.ones(N, device=device, dtype=torch.long),
                        torch.where(td_L, torch.zeros(N, device=device, dtype=torch.long),
-                                   torch.full((N,), 2, device=device, dtype=torch.long)))  # 2: «нет события»
+                                   torch.full((N,), 2, device=device, dtype=torch.long)))  #2: "no event"
 
         same_lead = (new_lead != 2) & (env._g1_last_lead != 2) & (new_lead == env._g1_last_lead)
         alt_ok    = (new_lead != 2) & ((env._g1_last_lead == 2) | (new_lead != env._g1_last_lead))
 
-        # применяем бонус/штраф только на тех env, где был touchdown
+        # apply bonus/penalty only to those envs where there was a touchdown
         td_any = td_L | td_R
         td_reward = touchdown_bonus * (score_L + score_R)
         td_reward = torch.where(same_lead, td_reward - same_lead_penalty, td_reward)
         reward = reward + torch.where(td_any, td_reward, torch.zeros_like(td_reward))
 
-        # обновить last_lead там, где был touchdown
+        # update last_lead where touchdown was
         env._g1_last_lead = torch.where(td_L, torch.zeros_like(env._g1_last_lead),
                                  torch.where(td_R, torch.ones_like(env._g1_last_lead),
                                              env._g1_last_lead))
 
-        # (c) «шейпинг» во время полёта — приближать длительность к target
-        # текущий активный свинг таймер (берём max из левой/правой, но только когда ровно одна в воздухе)
+        # (c) "shaping" during flight - bring the duration closer to the target
+        # current active swing timer (take max from left/right, but only when exactly one is in the air)
         single_support_air = env._g1_air_L ^ env._g1_air_R
         cur_t = torch.where(env._g1_air_L, env._g1_t_air_L,
                      torch.where(env._g1_air_R, env._g1_t_air_R, torch.zeros(N, device=device)))
         shaping = torch.exp(-((cur_t - target_swing_time) ** 2) / (swing_sigma ** 2 + 1e-12))
         reward = reward + shaping_weight * (moving & single_support_air).float() * shaping
 
-    # --- обновить «предыдущие контакты» ---
+    # --- update "previous contacts" ---
     env._g1_prev_Lc = Lc
     env._g1_prev_Rc = Rc
     
     # print(f"alternating_airtime_reward: {reward}")
-    return reward    
+    return reward 
+    
+def step_phase_reward(
+    env,
+    command_name: str = "base_velocity",
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
+    asset_cfg:  SceneEntityCfg = SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
+
+    # --- commands and gates ---
+    lin_deadband: float = 0.03,      # m/s: "almost stopped"
+    use_history: bool = True,        # we take the maximum from the sensor history (more resistant to noise)
+
+    # --- contact force ---
+    contact_force_threshold: float = 0.0,  # H: optional threshold (0 - no threshold)
+    amp_ref: float = 800.0,                # H: desired max force for normalization and reference A
+
+    # --- phase generator ---
+    freq_gain_hz_per_mps: float = 2.0,     # f = k_f * |v|; at |v|=0.5 => 1 Hz; at |v|=1.0 => 2 Hz
+    clamp_freq: tuple = (0.0, 4.0),        
+
+    # --- exponent from MSE ---
+    mse_beta: float = 5.0,                 # r_leg = exp(-beta * MSE_leg) 
+
+):
+    """
+    Returns the [num_envs] tensor with a reward.
+    Expected order: sensor_cfg.body_ids: [LeftFoot, RightFoot].
+    Takes the velocity command from env.command_manager[command_name].command (N,3): [vx, vy, wz].
+    """
+    device = env.device
+    N = env.num_envs
+    cs: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+    # dt симуляции
+    dt = env.sim.cfg.dt * env.cfg.decimation
+
+    # --- command and movement flag ---
+    cmd = env.command_manager.get_term(command_name).command  # (N,3)
+    cmd = torch.as_tensor(cmd, device=device, dtype=torch.float32)
+    lin_mag = cmd[:, :2].norm(dim=1)                          # (N,)
+    moving = lin_mag >= lin_deadband
+
+    # --- contact forces between two feet (norms) ---
+    if use_history:
+        f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]  # (N,H,2,3)
+        fmag = f_hist.norm(dim=-1).amax(dim=1)                                # (N,2)
+    else:
+        f_now = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]              # (N,2,3)
+        fmag = f_now.norm(dim=-1)                                            # (N,2)
+
+    if contact_force_threshold > 0.0:
+        fmag = torch.where(fmag > contact_force_threshold, fmag, torch.zeros_like(fmag))
+
+    # --- per-env state: accumulate oscillator phase ---
+    if not hasattr(env, "_g2_phase"):
+        env._g2_phase = torch.zeros(N, dtype=torch.float32, device=device)
+
+    # frequency by speed: f = k_f * |v| (Hz)
+    f_hz = freq_gain_hz_per_mps * lin_mag
+    if clamp_freq is not None:
+        f_hz = torch.clamp(f_hz, clamp_freq[0], clamp_freq[1])
+
+    # phase increment: dφ = 2π f dt
+    dphi = (2.0 * torch.pi * f_hz * dt).to(device)
+    env._g2_phase = (env._g2_phase + dphi) % (2.0 * torch.pi)
+
+    # --- Reference signals for legs ---
+    # Right leg: φ_R = φ
+    # Left leg: φ_L = φ + π (antiphase)
+    phi = env._g2_phase
+    s_ref_R = amp_ref * torch.relu(torch.sin(phi))
+    s_ref_L = amp_ref * torch.relu(torch.sin(phi + torch.pi))
+
+    # --- normalization of forces to [0,1] by amp_ref and clipping ---
+    eps = 1e-6
+    act_R = torch.clamp(fmag[:, 1] / (amp_ref + eps), 0.0, 1.0)  # assume order [L, R]
+    act_L = torch.clamp(fmag[:, 0] / (amp_ref + eps), 0.0, 1.0)
+    ref_R = torch.clamp(s_ref_R / (amp_ref + eps), 0.0, 1.0)
+    ref_L = torch.clamp(s_ref_L / (amp_ref + eps), 0.0, 1.0)
+
+    # --- MSE for each leg (for this step) ---
+    mse_R = (act_R - ref_R) ** 2
+    mse_L = (act_L - ref_L) ** 2
+
+    # --- exponent from MSE, multiplication of legs ---
+    r_R = torch.exp(-mse_beta * mse_R)
+    r_L = torch.exp(-mse_beta * mse_L)
+    reward = r_R * r_L
+
+    # --- gate on movement: at rest we do not affect the total reward ---
+    reward = reward * moving.float()
+    # print(f"step_phase_reward: {reward}")
+    return reward 
+    
+    
+def com_projection_reward(
+    env,
+    command_name: str = "base_velocity",
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
+    asset_cfg:  SceneEntityCfg = SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
+
+    # --- gates on command ---
+    lin_deadband: float = 0.03,          # m/s: "almost there" → target CoM without bias
+
+    # --- contacts ---
+    contact_force_threshold: float = 5.0,# H: contact if |F| > threshold
+    use_history: bool = True,            # more noise-resistant (we take the maximum from history)
+
+    # --- desired displacement of CoM in the direction of movement ---
+    com_offset_gain: float = 0.15,       # m per (m/s): at |v|=1 we shift by 0.15 m
+    max_offset: float = 0.25,            # m: maximum displacement limit
+    beta: float = 10.0,                  # r = exp(-beta * mse)
+
+    # --- behavior without support ---
+    no_support_penalty: float = 0.0,     # can be >0 to penalize "jump" (two legs in the air)
+):
+    """
+    Returns a tensor [N] with a reward.
+    Expectations:
+    • sensor_cfg.body_ids = [LeftFoot, RightFoot].
+    • The velocity command is available in env.command_manager[command_name].command (N,3): [vx, vy, wz].
+    • CoM is taken from robot.data.com_pos_w, if available; otherwise, the proxy is root_pos_w.
+    • Stop positions are taken from robot.data.body_state_w[:, body_ids, :3] (world coordinates).
+    """
+    device = env.device
+    N = env.num_envs
+    robot = env.scene[asset_cfg.name]
+    cs: ContactSensor = env.scene.sensors[sensor_cfg.name]
+
+    
+    # dt = env.sim.cfg.dt * env.cfg.decimation
+
+    # --- cmd ---
+    cmd = env.command_manager.get_term(command_name).command  # (N,3)
+    cmd = torch.as_tensor(cmd, device=device, dtype=torch.float32)
+    vxy = cmd[:, :2]                         # (N,2)
+    speed = vxy.norm(dim=1)                  # (N,)
+    moving = speed >= lin_deadband
+    dir_xy = torch.where(
+        (speed > 1e-6).unsqueeze(1),
+        vxy / (speed.unsqueeze(1) + 1e-12),
+        torch.zeros_like(vxy)
+    )                                         # (N,2)
+
+    # --- contact forces ---
+    if use_history:
+        f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]  # (N,H,2,3)
+        fmag   = f_hist.norm(dim=-1).amax(dim=1)                              # (N,2)
+    else:
+        f_now  = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]             # (N,2,3)
+        fmag   = f_now.norm(dim=-1)                                          # (N,2)
+
+    Lc = fmag[:, 0] > contact_force_threshold
+    Rc = fmag[:, 1] > contact_force_threshold
+    any_down  = Lc | Rc
+    both_down = Lc & Rc
+
+    # --- foot positions (world), we take the centers of the rigid bodies of the feet ---
+    body_pos_w = robot.data.body_state_w[:, sensor_cfg.body_ids, :3]  # (N,2,3)
+    L_xy = body_pos_w[:, 0, :2]                                       # (N,2)
+    R_xy = body_pos_w[:, 1, :2]                                       # (N,2)
+
+    # --- maintain the "last support" if both legs are in the air ---
+    need_init = not hasattr(env, "_g3_support_xy")
+    if need_init:
+        # initialization: take the average between the stops
+        env._g3_support_xy = 0.5 * (L_xy + R_xy)
+
+    # calculate the current reference point
+    # 1) both on the reference point → midpoint between those in contact (usually both)
+    # 2) one on the reference point → its position
+    # 3) none → take the previous one (memory)
+    support_xy = env._g3_support_xy.clone()
+
+    # both in contact
+    both_mask = both_down
+    if both_mask.any():
+        support_xy[both_mask] = 0.5 * (L_xy[both_mask] + R_xy[both_mask])
+    # only left
+    onlyL = Lc & (~Rc)
+    if onlyL.any():
+        support_xy[onlyL] = L_xy[onlyL]
+    # only right
+    onlyR = Rc & (~Lc)
+    if onlyR.any():
+        support_xy[onlyR] = R_xy[onlyR]
+    # none - we leave the same
+
+    # we'll update the memory only when there's at least someone on the support
+    has_support = any_down
+    env._g3_support_xy = torch.where(
+        has_support.unsqueeze(1),
+        support_xy,
+        env._g3_support_xy
+    )
+
+    # --- desired point CoM ---
+    offset_mag = torch.clamp(com_offset_gain * speed, 0.0, max_offset)  # (N,)
+    # at almost zero speed offset→0 automatically
+    target_xy = env._g3_support_xy + dir_xy * offset_mag.unsqueeze(1)   # (N,2)
+
+    # --- actual projection CoM (x,y) ---
+    if hasattr(robot.data, "com_pos_w"):
+        com_xy = robot.data.com_pos_w[:, :2]     # (N,2)
+    else:
+        # fallback: use root position as CoM proxy
+        com_xy = robot.data.root_pos_w[:, :2]    # (N,2)
+
+    # --- MSE and Reward ---
+    diff = com_xy - target_xy                    # (N,2)
+    mse  = (diff ** 2).sum(dim=1)                # (N,) — square error in XY
+    reward = torch.exp(-beta * mse)              # (N,)
+
+    # if there is no support, an additional fine may be imposed (optional)
+    if no_support_penalty > 0.0:
+        reward = reward - no_support_penalty * (~has_support).float()
+    # print(f"reward: {reward}")
+    return reward
+          
