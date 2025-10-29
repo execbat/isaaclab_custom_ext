@@ -5,7 +5,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 import math
 
-from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_motion_penalty, lateral_slip_penalty, heading_alignment_reward, leg_pelvis_torso_coalignment_reward, idle_penalty, angvel_flat_l2_product, alternating_airtime_reward, step_phase_reward, com_projection_reward, step_width_reward
+from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_motion_penalty, lateral_slip_penalty, heading_alignment_reward, leg_pelvis_torso_coalignment_reward, idle_penalty, angvel_flat_l2_product, alternating_airtime_reward, step_phase_reward, com_projection_reward, step_width_penalty
 
 @configclass
 class G1Rewards(RewardsCfg):
@@ -198,7 +198,7 @@ class G1Rewards(RewardsCfg):
         "lin_deadband": 0.03,
         "amp_ref": 800.0,             
         "freq_gain_hz_per_mps": 2.0,  # at |v|=0.5 -> 1 Hz, at 1.0 -> 2 Hz
-        "mse_beta": 5.0,
+        "std_vel": 0.25,
         "use_history": True,
         },
     )  
@@ -222,16 +222,16 @@ class G1Rewards(RewardsCfg):
         },
     )
 
-    step_width_reward = RewTerm(
-        func=step_width_reward,
-        weight=0.5,  
+    step_width_penalty = RewTerm(
+        func=step_width_penalty,
+        weight=-0.5,  
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces",
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
             "asset_cfg":  SceneEntityCfg("robot",
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
             "nominal_width": 0.20,
-            "beta": 20.0,
+            #"beta": 20.0,
             "contact_force_threshold": 5.0,
             "use_history": True,
             "gate_by_support": True,

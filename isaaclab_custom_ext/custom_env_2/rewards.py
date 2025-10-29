@@ -565,7 +565,7 @@ def step_phase_reward(
     clamp_freq: tuple = (0.0, 4.0),        
 
     # --- exponent from MSE ---
-    mse_beta: float = 5.0,                 # r_leg = exp(-beta * MSE_leg) 
+    std_vel: float = 0.25,                 # reward = 1.5* np.exp(- (vel_mae) / (std_vel**2 + eps)) - 0.5
 
 ):
     """
@@ -589,9 +589,9 @@ def step_phase_reward(
     # --- contact forces between two feet (norms) ---
     if use_history:
         f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]  # (N,H,2,3)
-        fmag = f_hist.norm(dim=-1).amax(dim=1)                                # (N,2)
+        fmag = f_hist.norm(dim=-1).amax(dim=1)                                # (N,2)        
     else:
-        f_now = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]              # (N,2,3)
+        f_now = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]              # (N,2,3)        
         fmag = f_now.norm(dim=-1)                                            # (N,2)
 
     if contact_force_threshold > 0.0:
@@ -625,17 +625,26 @@ def step_phase_reward(
     ref_L = torch.clamp(s_ref_L / (amp_ref + eps), 0.0, 1.0)
 
     # --- MSE for each leg (for this step) ---
-    mse_R = (act_R - ref_R) ** 2
-    mse_L = (act_L - ref_L) ** 2
+    mae_R = torch.abs(act_R - ref_R)
+    mae_L = torch.abs(act_L - ref_L)
+    #print("Step_PHASE")
+    #print(f"mae_R {mae_R}")
+    #print(f"mae_L {mae_L}")    
+    
 
     # --- exponent from MSE, multiplication of legs ---
-    r_R = torch.exp(-mse_beta * mse_R)
-    r_L = torch.exp(-mse_beta * mse_L)
-    reward = r_R * r_L
+    #reward = 1.5* np.exp(- (1 * vel_mse) / (std_vel**2 + eps)) - 0.5 
+    r_R = 1.5 * torch.exp(-mae_R / (std_vel**2 + eps)) - 0.5
+    r_L = 1.5 * torch.exp(-mae_L / (std_vel**2 + eps)) - 0.5
+    #print(f"r_R {r_R}")
+    #print(f"r_L {r_L}")   
+    
+    reward = r_R + r_L
 
     # --- gate on movement: at rest we do not affect the total reward ---
     reward = reward * moving.float()
-    # print(f"step_phase_reward: {reward}")
+    #print(f"step_phase_reward: {reward}")
+
     return reward 
     
     
@@ -755,22 +764,23 @@ def com_projection_reward(
     # --- MSE and Reward ---
     diff = com_xy - target_xy                    # (N,2)
     mse  = (diff ** 2).sum(dim=1)                # (N,) — square error in XY
+    #print(f"MSE {mse}")
     reward = torch.exp(-beta * mse)              # (N,)
 
     # if there is no support, an additional fine may be imposed (optional)
     if no_support_penalty > 0.0:
         reward = reward - no_support_penalty * (~has_support).float()
-    # print(f"reward: {reward}")
+    #print(f" COM reward: {reward}")
     return reward
 
-def step_width_reward(
+def step_width_penalty(
     env,
     sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
     asset_cfg:  SceneEntityCfg = SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
 
     # — nominal value and sensitivity —
     nominal_width: float = 0.20,      # m: desired distance between feet (or maximum without penalty)
-    beta: float = 20.0,               # r = exp(-beta * excess^2)
+    #beta: float = 20.0,               # r = exp(-beta * excess^2)
 
     # — contacts and gates —
     contact_force_threshold: float = 5.0,
@@ -797,9 +807,9 @@ def step_width_reward(
 
     # Excess over par
     excess = torch.clamp(dist_xy - nominal_width, min=0.0)            # (N,)
-    mse = excess ** 2
+    penalty = excess
 
-    reward = torch.exp(-beta * mse)                                   # (N,)
+                                      # (N,)
 
     # Optional: No penalty when both legs are in the air (no support)
     if gate_by_support:
@@ -814,8 +824,8 @@ def step_width_reward(
         Rc = fmag[:, 1] > contact_force_threshold
         any_down = Lc | Rc
 
-        # where there is no support, we set the reward to 1 (neutral) to avoid penalties in flight
-        reward = torch.where(any_down, reward, torch.ones_like(reward))
+        # where there is no support, we set the penalty to 0 (neutral) to avoid penalties in flight
+        penalty = torch.where(any_down, penalty, torch.zeros_like(penalty))
     
-    # print(f"reward: {reward}")
-    return reward          
+    #print(f"penalty: {penalty}")
+    return penalty          
