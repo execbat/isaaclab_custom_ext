@@ -639,7 +639,9 @@ def step_phase_reward(
     #print(f"r_R {r_R}")
     #print(f"r_L {r_L}")   
     
-    reward = r_R + r_L
+    cond = (r_R < 0) & (r_L < 0)         
+    prod = r_R * r_L                       
+    reward = torch.where(cond, -prod, prod)
 
     # --- gate on movement: at rest we do not affect the total reward ---
     reward = reward * moving.float()

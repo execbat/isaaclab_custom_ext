@@ -157,7 +157,7 @@ class G1Rewards(RewardsCfg):
         }
     )                
 
-    '''
+    
     alt_airtime_term = RewTerm(
         func=alternating_airtime_reward,
         weight=0.5,
@@ -186,7 +186,7 @@ class G1Rewards(RewardsCfg):
             "flight_penalty": 1.0,                # penalty if both legs are in the air while moving
                 },
     )   
-    '''
+    
             
     step_phase_reward = RewTerm(
         func=step_phase_reward,
