@@ -12,10 +12,10 @@ class G1Rewards(RewardsCfg):
     """Reward terms for the MDP."""
 
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=4.0, params={"command_name": "base_velocity", "std": math.sqrt(0.6)}
+        func=mdp.track_lin_vel_xy_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.4)}
+        func=mdp.track_ang_vel_z_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
 #    track_vel_exp_product = RewTerm(
 #        func=angvel_flat_l2_product,
@@ -190,7 +190,7 @@ class G1Rewards(RewardsCfg):
             
     step_phase_reward = RewTerm(
         func=step_phase_reward,
-        weight=2.0,   
+        weight=4.0,   
         params={
         "command_name": "base_velocity",
         "sensor_cfg": SceneEntityCfg("contact_forces",
@@ -205,7 +205,7 @@ class G1Rewards(RewardsCfg):
     
     com_reward = RewTerm(
         func=com_projection_reward,
-        weight=2.0,  
+        weight=1.0,  
         params={
         "command_name": "base_velocity",
         "sensor_cfg": SceneEntityCfg("contact_forces",
