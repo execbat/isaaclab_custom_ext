@@ -147,7 +147,7 @@ class G1Rewards(RewardsCfg):
     
     idle_penalty = RewTerm(
         func = idle_penalty,
-        weight = - 0.1,
+        weight = - 10.0,
         params={
             "command_name": "base_velocity",
             "asset_cfg": SceneEntityCfg("robot"),
