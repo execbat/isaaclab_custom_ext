@@ -593,7 +593,7 @@ def step_phase_reward(
     else:
         f_now = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]              # (N,2,3)        
         fmag = f_now.norm(dim=-1)                                            # (N,2)
-        print(f"fmag {fmag}")
+        #print(f"fmag {fmag}")
 
     if contact_force_threshold > 0.0:
         fmag = torch.where(fmag > contact_force_threshold, fmag, torch.zeros_like(fmag))
