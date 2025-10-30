@@ -638,8 +638,8 @@ def step_phase_reward(
     #r_L = 1.5 * torch.exp(-mae_L / (std_vel**2 + eps)) - 0.5
     r_R = torch.exp(-mae_R / (std_vel**2 + eps)) 
     r_L = torch.exp(-mae_L / (std_vel**2 + eps)) 
-    print(f"r_R {r_R}")
-    print(f"r_L {r_L}")   
+    #print(f"r_R {r_R}")
+    #print(f"r_L {r_L}")   
     
     cond = (r_R < 0) & (r_L < 0)         
     prod = r_R * r_L                       
@@ -647,7 +647,7 @@ def step_phase_reward(
 
     # --- gate on movement: at rest we do not affect the total reward ---
     reward = reward * moving.float()
-    print(f"step_phase_reward: {reward}")
+    #print(f"step_phase_reward: {reward}")
 
     return reward 
     
