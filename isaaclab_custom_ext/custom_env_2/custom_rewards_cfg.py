@@ -12,10 +12,10 @@ class G1Rewards(RewardsCfg):
     """Reward terms for the MDP."""
 
     track_lin_vel_xy_exp = RewTerm(
-        func=track_lin_vel_xy_exp_custom, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_lin_vel_xy_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     track_ang_vel_z_exp = RewTerm(
-        func=track_ang_vel_z_exp_custom, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_ang_vel_z_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
 #    track_vel_exp_product = RewTerm(
 #        func=angvel_flat_l2_product,
@@ -181,7 +181,7 @@ class G1Rewards(RewardsCfg):
             "eq_sigma": 0.08,
             "touchdown_equal_bonus": 1.0,
             "max_swing_time": 1.0,
-            "excess_penalty_scale": 1.5,  # start at 1.0–2.0 if you see overlong swings
+            "excess_penalty_scale": 1.5,  
             "same_lead_penalty": 0.4,
             "flight_penalty": 1.0,
             "idle_double_support_bonus_val": 1.0,
