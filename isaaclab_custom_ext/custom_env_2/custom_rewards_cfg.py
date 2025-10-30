@@ -11,10 +11,10 @@ from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_mo
 class G1Rewards(RewardsCfg):
     """Reward terms for the MDP."""
 
-    track_lin_vel_xy_exp_custom = RewTerm(
+    track_lin_vel_xy_exp = RewTerm(
         func=track_lin_vel_xy_exp_custom, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
-    track_ang_vel_z_exp_custom = RewTerm(
+    track_ang_vel_z_exp = RewTerm(
         func=track_ang_vel_z_exp_custom, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
 #    track_vel_exp_product = RewTerm(
