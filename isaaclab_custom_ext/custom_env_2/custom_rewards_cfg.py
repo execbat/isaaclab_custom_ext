@@ -169,31 +169,23 @@ class G1Rewards(RewardsCfg):
     
     alt_airtime_term = RewTerm(
         func=alternating_airtime_reward,
-        weight=0.5,
+        weight=2.5,
         params={
             "command_name": "base_velocity",
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
             "asset_cfg":  SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
-
-            # --- commands and gates ---
-            "lin_deadband": 0.03,                 # m/s: "command ≈ 0"
-            "ang_deadband": 0.03,                 # rad/s
-
-            # --- contacts ---
-            "contact_force_threshold": 5.0,       # H: contact is considered if |F| > thr
-            "use_history": True,                  # take Max based on the sensor history (resistant to noise)
-
-            # --- target by leg flight time ---
-            "target_swing_time": 0.8,             # sec - target time "leg in the air"
-            "swing_sigma": 0.10,                  # sec is the bell width for exp(−(t−T)^2/σ^2)
-
-            # --- weights and fines ---
-            "idle_double_support_bonus_val": 1.0, # bonus at rest for bipedalism
-            "touchdown_bonus": 1.0,               # bonus at the moment of touch, if swing≈target
-            "shaping_weight": 0.3,                # soft bonus during the flight (every step)
-            "same_lead_penalty": 0.5,             # penalty if the same leg "leads" in a row
-            "flight_penalty": 1.0,                # penalty if both legs are in the air while moving
-                },
+            "lin_deadband": 0.03,
+            "ang_deadband": 0.03,
+            "contact_force_threshold": 5.0,
+            "use_history": True,
+            "eq_sigma": 0.08,
+            "touchdown_equal_bonus": 1.0,
+            "max_swing_time": 1.0,
+            "excess_penalty_scale": 1.5,  # start at 1.0–2.0 if you see overlong swings
+            "same_lead_penalty": 0.4,
+            "flight_penalty": 1.0,
+            "idle_double_support_bonus_val": 1.0,
+            },
     )   
     
             

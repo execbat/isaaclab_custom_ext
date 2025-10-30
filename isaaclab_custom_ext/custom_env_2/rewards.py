@@ -403,170 +403,217 @@ def angvel_flat_l2_product(
 def alternating_airtime_reward(
     env,
     command_name: str = "base_velocity",
-    sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
-    asset_cfg:  SceneEntityCfg = SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),    
+    sensor_cfg: SceneEntityCfg =SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
+    asset_cfg: SceneEntityCfg =SceneEntityCfg("robot", body_names=".*_ankle_roll_link"),
 
-    # --- commands and gates ---
-    lin_deadband: float = 0.03,                 # m/s: "command ≈ 0"
-    ang_deadband: float = 0.03,                 # rad/s
+    # --- command gating ---
+    lin_deadband: float = 0.03,     # m/s: below -> linear command considered "near zero"
+    ang_deadband: float = 0.03,     # rad/s: below -> angular command considered "near zero"
 
     # --- contacts ---
-    contact_force_threshold: float = 5.0,       # H: contact is considered if |F| > thr
-    use_history: bool = True,                   # we take the max from the sensor history (more resistant to noise)
+    contact_force_threshold: float = 5.0,  # N: contact if |F| > threshold
+    use_history: bool = True,              # robust to noise (use max over history window)
 
-    # --- target by leg flight time ---
-    target_swing_time: float = 0.35,            # sec – target time for “leg in the air”
-    swing_sigma: float = 0.10,                  # sec — bell width for exp(−(t−T)^2/σ^2)
+    # --- equality of swing durations (no fixed target) ---
+    eq_sigma: float = 0.08,                # s: Gaussian width on Δt (smaller = stricter equality)
+    touchdown_equal_bonus: float = 1.0,    # bonus awarded at touchdown based on equality score
 
-    # --- weights and fines ---
-    idle_double_support_bonus_val: float = 1.0, # bonus at rest for two-legged
-    touchdown_bonus: float = 1.0,               # bonus at the moment of touch, if swing≈target
-    shaping_weight: float = 0.3,                # soft bonus during flight (every step)
-    same_lead_penalty: float = 0.5,             # penalty if the same leg "leads" in a row
-    flight_penalty: float = 1.0,                # penalty if both legs are in the air while moving
-):
+    # --- swing time cap ---
+    max_swing_time: float = 1.0,           # s: hard cap; any excess is penalized
+    excess_penalty_scale: float = 1.0,     # penalty per second of excess per step
+
+    # --- small helpers (optional but useful) ---
+    same_lead_penalty: float = 0.4,        # penalty if the same leg "leads" twice in a row
+    flight_penalty: float = 1.0,           # penalty when both feet are airborne while moving
+    idle_double_support_bonus_val: float = 1.0,  # bonus for double support at rest
+) -> torch.Tensor:
     """
-    Returns a tensor [num_envs] with the reward.
+    Reward that encourages LEFT and RIGHT swing durations to be equal, without pulling them
+    toward a fixed target value.
 
-    Expectations:
-    • sensor_cfg.body_ids are ordered as [LeftFoot, RightFoot] (ankle/foot).
-    • The velocity command is available in env.command_manager.get_term(command_name).command (N,3): [vx, vy, wz].
+    Behavior:
+      • REST (no significant linear or angular command):
+          + Reward double support.
+      • MOVING:
+          + At each touchdown, compare the just-finished swing of that leg with the *last completed*
+            swing of the opposite leg. Add a Gaussian bonus on the absolute difference Δt.
+          + Penalize if both feet are airborne.
+          + (Optional) Penalize "same leader" (the same leg touching down consecutively).
+
+      • Swing time cap:
+          + While a leg is airborne, any time beyond `max_swing_time` is penalized every step
+            (proportional to the excess).
+
+    Assumptions:
+      • sensor_cfg.body_ids is ordered as [LeftFoot, RightFoot].
+      • env.command_manager.get_term(command_name).command returns (N,3): [vx, vy, wz].
+      • Contact forces are available in `contact_forces` sensor (world frame).
+      • env.sim.cfg.dt and env.cfg.decimation are set.
+
+    Returns:
+      Tensor[N] rewards.
     """
+
+    # Aliases / fetch scene pieces
+    if sensor_cfg is None:
+        raise ValueError("Provide sensor_cfg with the contact sensor and [LeftFoot, RightFoot] ids.")
+    if asset_cfg is None:
+        raise ValueError("Provide asset_cfg for the robot (used only for consistency here).")
+
     device = env.device
     N = env.num_envs
-    robot = env.scene[asset_cfg.name]
-    cs: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    cs = env.scene.sensors[sensor_cfg.name]
 
-    # --- dt of environment (drop to 1/60 in the absence of explicit dt) ---
-    dt = env.sim.cfg.dt * env.cfg.decimation 
-    # print(f'dt {dt}')
-    # --- movement command and gates ---
-    cmd = env.command_manager.get_term(command_name).command  # (N,3)
+    # Time step (sim dt * action decimation)
+    dt = env.sim.cfg.dt * env.cfg.decimation
+
+    # --- Command and gating ---
+    cmd = env.command_manager.get_term(command_name).command  # (N,3): [vx, vy, wz]
     cmd = torch.as_tensor(cmd, device=device, dtype=torch.float32)
-    lin_mag = cmd[:, :2].norm(dim=1)
+    lin_mag = cmd[:, :2].norm(dim=1)                 # linear command magnitude
     ang_mag = cmd[:, 2].abs() if cmd.shape[1] >= 3 else torch.zeros_like(lin_mag)
 
-    near_zero = (lin_mag < lin_deadband) & (ang_mag < ang_deadband)   # no movement
-    moving    = ~near_zero                                            # movement
+    near_zero = (lin_mag < lin_deadband) & (ang_mag < ang_deadband)  # rest
+    moving    = ~near_zero                                           # moving
 
-    # --- contacts on two stops (resistant to noise via .amax according to history) ---
+    # --- Contact detection ---
+    # Robust: use max over history window; else use current forces
     if use_history:
-        f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]  # (N,H,2,3)
-        fmag   = f_hist.norm(dim=-1).amax(dim=1)                              # (N,2)
+        # net_forces_w_history: [N, H, bodies, 3]
+        f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]   # (N,H,2,3)
+        fmag   = f_hist.norm(dim=-1).amax(dim=1)                               # (N,2)
     else:
-        f_now  = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]             # (N,2,3)
-        fmag   = f_now.norm(dim=-1)                                          # (N,2)
+        # net_forces_w: [N, bodies, 3]
+        f_now  = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]              # (N,2,3)
+        fmag   = f_now.norm(dim=-1)                                           # (N,2)
 
-    Lc = fmag[:, 0] > contact_force_threshold   # (N,)
-    Rc = fmag[:, 1] > contact_force_threshold   # (N,)
+    # Contact booleans
+    Lc = fmag[:, 0] > contact_force_threshold   # Left in contact
+    Rc = fmag[:, 1] > contact_force_threshold   # Right in contact
     both_down = Lc & Rc
     any_down  = Lc | Rc
-    flight    = ~any_down
+    flight    = ~any_down                       # both in the air
 
-    # --- per-env initialization/state storage ---
-    _need_init = not all(hasattr(env, a) for a in [
-        "_g1_prev_Lc", "_g1_prev_Rc", "_g1_air_L", "_g1_air_R",
-        "_g1_t_air_L", "_g1_t_air_R", "_g1_last_lead"
+    # --- Persistent state (per-env) ---
+    # We keep:
+    #   • previous contact states (to detect liftoff/touchdown),
+    #   • "in the air" flags, current swing timers,
+    #   • last leader (which leg touched down last),
+    #   • last completed swing durations for each leg.
+    need_init = not all(hasattr(env, a) for a in [
+        "_air_prev_Lc", "_air_prev_Rc",
+        "_air_in_L", "_air_in_R",
+        "_air_t_L", "_air_t_R",
+        "_air_last_lead",
+        "_air_last_swing_L", "_air_last_swing_R"
     ])
-    if _need_init:
-        env._g1_prev_Lc  = torch.zeros(N, dtype=torch.bool, device=device)
-        env._g1_prev_Rc  = torch.zeros(N, dtype=torch.bool, device=device)
-        env._g1_air_L    = torch.zeros(N, dtype=torch.bool, device=device)    # is in the air now?
-        env._g1_air_R    = torch.zeros(N, dtype=torch.bool, device=device)
-        env._g1_t_air_L  = torch.zeros(N, dtype=torch.float32, device=device) #  accumulated air time
-        env._g1_t_air_R  = torch.zeros(N, dtype=torch.float32, device=device)
-        # who was the last "leader" (0=L, 1=R, 2=no/has not been yet)
-        env._g1_last_lead = torch.full((N,), 2, dtype=torch.long, device=device)
+    if need_init:
+        env._air_prev_Lc  = torch.zeros(N, dtype=torch.bool,   device=device)
+        env._air_prev_Rc  = torch.zeros(N, dtype=torch.bool,   device=device)
+        env._air_in_L     = torch.zeros(N, dtype=torch.bool,   device=device)  # airborne now?
+        env._air_in_R     = torch.zeros(N, dtype=torch.bool,   device=device)
+        env._air_t_L      = torch.zeros(N, dtype=torch.float32,device=device)  # current swing timer (L)
+        env._air_t_R      = torch.zeros(N, dtype=torch.float32,device=device)  # current swing timer (R)
+        env._air_last_lead= torch.full((N,), 2, dtype=torch.long, device=device)  # 0=L,1=R,2=none
+        env._air_last_swing_L = torch.zeros(N, dtype=torch.float32, device=device)  # last completed L swing
+        env._air_last_swing_R = torch.zeros(N, dtype=torch.float32, device=device)  # last completed R swing
 
-    # reset state at the end of episodes
+    # Reset state at episode ends
     resets = (env.termination_manager.terminated | env.termination_manager.time_outs)
     if resets.any():
-        env._g1_prev_Lc[resets]  = Lc[resets]
-        env._g1_prev_Rc[resets]  = Rc[resets]
-        env._g1_air_L[resets]    = ~Lc[resets]
-        env._g1_air_R[resets]    = ~Rc[resets]
-        env._g1_t_air_L[resets]  = 0.0
-        env._g1_t_air_R[resets]  = 0.0
-        env._g1_last_lead[resets]= 2
+        env._air_prev_Lc[resets]   = Lc[resets]
+        env._air_prev_Rc[resets]   = Rc[resets]
+        env._air_in_L[resets]      = ~Lc[resets]
+        env._air_in_R[resets]      = ~Rc[resets]
+        env._air_t_L[resets]       = 0.0
+        env._air_t_R[resets]       = 0.0
+        env._air_last_lead[resets] = 2
+        env._air_last_swing_L[resets] = 0.0
+        env._air_last_swing_R[resets] = 0.0
 
-    # --- liftoff/touchdown events ---
-    liftoff_L  = (~Lc) & env._g1_prev_Lc    # went into the air
-    liftoff_R  = (~Rc) & env._g1_prev_Rc
-    touchdown_L= Lc & (~env._g1_prev_Lc)    # landed
-    touchdown_R= Rc & (~env._g1_prev_Rc)
+    # --- Events: liftoff & touchdown ---
+    liftoff_L   = (~Lc) & env._air_prev_Lc
+    liftoff_R   = (~Rc) & env._air_prev_Rc
+    touchdown_L = Lc & (~env._air_prev_Lc)
+    touchdown_R = Rc & (~env._air_prev_Rc)
 
-    # --- update flags "in the air" ---
-    env._g1_air_L = ~Lc
-    env._g1_air_R = ~Rc
+    # --- Update airborne flags and timers ---
+    env._air_in_L = ~Lc
+    env._air_in_R = ~Rc
 
-    # --- increment of time "in the air" ---
-    env._g1_t_air_L = torch.where(env._g1_air_L, env._g1_t_air_L + dt, env._g1_t_air_L)
-    env._g1_t_air_R = torch.where(env._g1_air_R, env._g1_t_air_R + dt, env._g1_t_air_R)
+    # advance timers while airborne
+    env._air_t_L = torch.where(env._air_in_L, env._air_t_L + dt, env._air_t_L)
+    env._air_t_R = torch.where(env._air_in_R, env._air_t_R + dt, env._air_t_R)
 
-    # on liftoff, reset the timer for the corresponding leg
-    env._g1_t_air_L = torch.where(liftoff_L, torch.zeros_like(env._g1_t_air_L), env._g1_t_air_L)
-    env._g1_t_air_R = torch.where(liftoff_R, torch.zeros_like(env._g1_t_air_R), env._g1_t_air_R)
+    # on liftoff: reset that leg's swing timer
+    env._air_t_L = torch.where(liftoff_L, torch.zeros_like(env._air_t_L), env._air_t_L)
+    env._air_t_R = torch.where(liftoff_R, torch.zeros_like(env._air_t_R), env._air_t_R)
 
-    # --- base reward ---
+    # --- Base reward accumulator ---
     reward = torch.zeros(N, dtype=torch.float32, device=device)
 
-    #1) REST: bonus for double support
+    # 1) REST: reward double support
     reward = reward + idle_double_support_bonus_val * (near_zero & both_down).float()
 
-    #2) MOVEMENT: Alternation + Target Swing
+    # 2) MOVING: evaluate equality on touchdown + alternation helper + flight penalty
     if moving.any():
-        # (a) penalty for "flying the body" in movement (both legs in the air)
+        # Penalize flight (both legs airborne) while moving
         reward = reward - flight_penalty * (moving & flight).float()
 
-        # (b) touchdown bonus: exp(-(t−T)^2/σ^2)
-        def touchdown_score(t_air):
-            # Gaussian without 0.5: peak = 1.0 at t==target
-            return torch.exp(-((t_air - target_swing_time) ** 2) / (swing_sigma ** 2 + 1e-12))
+        # Gaussian on Δt at touchdown (compare with last completed swing of the opposite leg)
+        inv2sig2 = 1.0 / (2.0 * (eq_sigma ** 2) + 1e-12)
+        td_bonus = torch.zeros(N, device=device)
 
-        td_L = moving & touchdown_L
-        td_R = moving & touchdown_R
+        # Left touches down: compare its current swing tL with last completed right swing tR_last
+        if touchdown_L.any():
+            tL = env._air_t_L[touchdown_L]
+            tR_last = env._air_last_swing_R[touchdown_L]
+            has_ref = tR_last > 0.0  # only reward if the other leg has a reference swing
+            score_L = torch.zeros_like(tL)
+            if has_ref.any():
+                d = tL[has_ref] - tR_last[has_ref]
+                score_L[has_ref] = torch.exp(-(d * d) * inv2sig2)
+            td_bonus[touchdown_L] = touchdown_equal_bonus * score_L
+            # finalize L's swing as "last completed"
+            env._air_last_swing_L[touchdown_L] = tL
 
-        score_L = torch.zeros(N, device=device)
-        score_R = torch.zeros(N, device=device)
-        if td_L.any():
-            score_L[td_L] = touchdown_score(env._g1_t_air_L[td_L])
-        if td_R.any():
-            score_R[td_R] = touchdown_score(env._g1_t_air_R[td_R])
+        # Right touches down: same logic
+        if touchdown_R.any():
+            tR = env._air_t_R[touchdown_R]
+            tL_last = env._air_last_swing_L[touchdown_R]
+            has_ref = tL_last > 0.0
+            score_R = torch.zeros_like(tR)
+            if has_ref.any():
+                d = tR[has_ref] - tL_last[has_ref]
+                score_R[has_ref] = torch.exp(-(d * d) * inv2sig2)
+            td_bonus[touchdown_R] = touchdown_equal_bonus * score_R
+            env._air_last_swing_R[touchdown_R] = tR
 
-        # alternation: if the same leader in a row - penalty
-        # leader - the leg that just completed the swing (touchdown)
-        new_lead = torch.where(td_R, torch.ones(N, device=device, dtype=torch.long),
-                       torch.where(td_L, torch.zeros(N, device=device, dtype=torch.long),
-                                   torch.full((N,), 2, device=device, dtype=torch.long)))  #2: "no event"
+        reward = reward + td_bonus
 
-        same_lead = (new_lead != 2) & (env._g1_last_lead != 2) & (new_lead == env._g1_last_lead)
-        alt_ok    = (new_lead != 2) & ((env._g1_last_lead == 2) | (new_lead != env._g1_last_lead))
+        # Optional: penalize same leader twice in a row (encourages alternation)
+        new_lead = torch.where(touchdown_R, torch.ones(N, device=device, dtype=torch.long),
+                        torch.where(touchdown_L, torch.zeros(N, device=device, dtype=torch.long),
+                                    torch.full((N,), 2, device=device, dtype=torch.long)))
+        same_lead = (new_lead != 2) & (env._air_last_lead != 2) & (new_lead == env._air_last_lead)
+        reward = reward - same_lead_penalty * same_lead.float()
 
-        # apply bonus/penalty only to those envs where there was a touchdown
-        td_any = td_L | td_R
-        td_reward = touchdown_bonus * (score_L + score_R)
-        td_reward = torch.where(same_lead, td_reward - same_lead_penalty, td_reward)
-        reward = reward + torch.where(td_any, td_reward, torch.zeros_like(td_reward))
+        # update last leader where touchdown happened
+        env._air_last_lead = torch.where(
+            touchdown_L, torch.zeros_like(env._air_last_lead),
+            torch.where(touchdown_R, torch.ones_like(env._air_last_lead), env._air_last_lead)
+        )
 
-        # update last_lead where touchdown was
-        env._g1_last_lead = torch.where(td_L, torch.zeros_like(env._g1_last_lead),
-                                 torch.where(td_R, torch.ones_like(env._g1_last_lead),
-                                             env._g1_last_lead))
+    # 3) Swing-time cap: penalize *per step* any excess beyond max_swing_time (for each airborne leg)
+    excess_L = torch.clamp(env._air_t_L - float(max_swing_time), min=0.0)
+    excess_R = torch.clamp(env._air_t_R - float(max_swing_time), min=0.0)
+    reward = reward - float(excess_penalty_scale) * (excess_L + excess_R)
 
-        # (c) "shaping" during flight - bring the duration closer to the target
-        # current active swing timer (take max from left/right, but only when exactly one is in the air)
-        single_support_air = env._g1_air_L ^ env._g1_air_R
-        cur_t = torch.where(env._g1_air_L, env._g1_t_air_L,
-                     torch.where(env._g1_air_R, env._g1_t_air_R, torch.zeros(N, device=device)))
-        shaping = torch.exp(-((cur_t - target_swing_time) ** 2) / (swing_sigma ** 2 + 1e-12))
-        reward = reward + shaping_weight * (moving & single_support_air).float() * shaping
-
-    # --- update "previous contacts" ---
-    env._g1_prev_Lc = Lc
-    env._g1_prev_Rc = Rc
-    
-    # print(f"alternating_airtime_reward: {reward}")
-    return reward 
+    # Update previous contact states for next step
+    env._air_prev_Lc = Lc
+    env._air_prev_Rc = Rc
+    #print(f"alt time reward {reward}")
+    return reward
     
 def step_phase_reward(
     env,
