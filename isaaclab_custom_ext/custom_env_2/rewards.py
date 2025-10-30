@@ -293,38 +293,60 @@ def idle_penalty(
     env: "ManagerBasedRLEnv",
     command_name: str = "base_velocity",
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
-    min_cmd_speed: float = 0.10,        #m/s - we believe that this is "there is a command to go"
-    lin_speed_threshold: float = 0.05,  # m/s - we actually stand, if lower
-    scale: float = 1.0,                 # additional scale
+
+    # --- linear component ---
+    lin_speed_threshold: float = 0.03,  # m/s: actually "almost standing"
+    lin_scale: float = 1.0,             # additional scale for linear penalty
+
+    # --- corner component around z ---
+    ang_speed_threshold: float = 0.03,  # rad/s: essentially "almost no rotation"
+    ang_scale: float = 1.0,             # additional scale for corner penalty
+
+    # --- deadbands for readability (duplicate the meanings of min_cmd_* above) ---
+    lin_deadband: float = 0.03,         # m/s: "command ≈ 0"
+    ang_deadband: float = 0.03,         # rad/s: "command ≈ 0"
 ) -> torch.Tensor:
     """
-    Penalty (>=0) for "stuck in place" when the movement command is noticeable,
-    and the base's linear velocity in the XY plane is low.
+    Penalty (>=0) for "stuck in place": there is a noticeable command (linear and/or angular),
+    but the base barely moves or rotates.
 
-    Returns: Tensor[num_envs] (non-negative). Set weight < 0 in the config.
-
-    Rule:
-    if ||cmd_xy|| > min_cmd_speed and ||v_xy|| < lin_speed_threshold,
-    penalty = scale * (min_cmd_speed - ||v_xy||)_+ , otherwise 0.
+    Returns Tensor[num_envs] (non-negative). Set weight < 0 in the config.
+    Rules:
+    - if ||cmd_xy|| > lin_deadband and ||v_xy|| < lin_speed_threshold:
+    lin_pen = lin_scale * (min_cmd_speed - ||v_xy||)_+
+    - if |cmd_wz| > ang_deadband and |wz| < ang_speed_threshold:
+    ang_pen = ang_scale * (min_cmd_ang_speed - |wz|)_+
+    - result: penalty = lin_pen + ang_pen
     """
-    #actual base speed in LSC (XY)
     asset: RigidObject = env.scene[asset_cfg.name]
-    v_xy = asset.data.root_lin_vel_b[:, :2]                     # [N,2]
-    speed_xy = torch.linalg.norm(v_xy, dim=1)                   # [N]
 
-    # speed command (vx, vy, wz, ...)
-    cmd_xy = env.command_manager.get_command(command_name)[:, :2]  # [N,2]
-    cmd_speed = torch.linalg.norm(cmd_xy, dim=1)                   # [N]
+    # actual base speeds (in LSC)
+    v_xy = asset.data.root_lin_vel_b[:, :2]                  # [N,2]
+    speed_xy = torch.linalg.norm(v_xy, dim=1)                # [N]
+    wz = asset.data.root_ang_vel_b[:, 2].abs()               # [N] angular velocity along z
 
-    # «есть команда ехать», но «почти стоим»
-    idle_mask = (cmd_speed > float(min_cmd_speed)) & (speed_xy < float(lin_speed_threshold))
+    # command (vx, vy, wz, ...)
+    cmd = env.command_manager.get_command(command_name)       # [N, >=3]
+    cmd_xy = cmd[:, :2]
+    cmd_speed = torch.linalg.norm(cmd_xy, dim=1)              # [N]
+    cmd_wz = cmd[:, 2].abs()                                  # [N]
 
-    # linear penalty for underspeeding
-    deficit = (float(min_cmd_speed) - speed_xy).clamp(min=0.0)
+    #masks "there is a command, but no fact"
+    idle_lin = (cmd_speed > float(lin_deadband)) & (speed_xy < float(lin_speed_threshold))
+    idle_ang = (cmd_wz    > float(ang_deadband)) & (wz       < float(ang_speed_threshold))
 
+    # shortfall to the minimum expected speed when there is a command
+    lin_deficit = (float(lin_deadband) - speed_xy).clamp(min=0.0)
+    ang_deficit = (float(ang_deadband) - wz      ).clamp(min=0.0)
+
+    # penalties
     penalty = torch.zeros_like(speed_xy)
-    penalty[idle_mask] = float(scale) * deficit[idle_mask]
-    return penalty  
+    if idle_lin.any():
+        penalty[idle_lin] += float(lin_scale) * lin_deficit[idle_lin]
+    if idle_ang.any():
+        penalty[idle_ang] += float(ang_scale) * ang_deficit[idle_ang]
+
+    return penalty 
     
 def track_lin_vel_xy_exp_custom(
     env: ManagerBasedRLEnv, std: float, command_name: str, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"), DEBUG = False
@@ -553,8 +575,9 @@ def step_phase_reward(
     asset_cfg:  SceneEntityCfg = SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
 
     # --- commands and gates ---
-    lin_deadband: float = 0.03,      # m/s: "almost stopped"
-    use_history: bool = True,        # we take the maximum from the sensor history (more resistant to noise)
+    lin_deadband: float = 0.03,      # m/s: "almost stopped" (linear)
+    ang_deadband: float = 0.03,      # rad/s: "almost stopped" (angular)
+    use_history: bool = True,        # take max over history for robustness
 
     # --- contact force ---
     contact_force_threshold: float = 0.0,  # H: optional threshold (0 - no threshold)
@@ -564,14 +587,14 @@ def step_phase_reward(
     freq_gain_hz_per_mps: float = 2.0,     # f = k_f * |v|; at |v|=0.5 => 1 Hz; at |v|=1.0 => 2 Hz
     clamp_freq: tuple = (0.0, 4.0),        
 
-    # --- exponent from MSE ---
-    std_vel: float = 0.25,                 # reward = 1.5* np.exp(- (vel_mae) / (std_vel**2 + eps)) - 0.5
-
+    # --- exponent from MAE (gaussian kernel) ---
+    std_vel: float = 0.25,                 # controls sharpness of exp decay
 ):
     """
     Returns the [num_envs] tensor with a reward.
     Expected order: sensor_cfg.body_ids: [LeftFoot, RightFoot].
-    Takes the velocity command from env.command_manager[command_name].command (N,3): [vx, vy, wz].
+    Uses env.command_manager[command_name].command (N,3): [vx, vy, wz].
+    Reward is gated on (|v_cmd_lin| >= lin_deadband) OR (|wz_cmd| >= ang_deadband).
     """
     device = env.device
     N = env.num_envs
@@ -580,20 +603,20 @@ def step_phase_reward(
     # dt симуляции
     dt = env.sim.cfg.dt * env.cfg.decimation
 
-    # --- command and movement flag ---
-    cmd = env.command_manager.get_term(command_name).command  # (N,3)
+    # --- command and movement gate (linear OR angular) ---
+    cmd = env.command_manager.get_term(command_name).command  # (N,3) -> [vx, vy, wz]
     cmd = torch.as_tensor(cmd, device=device, dtype=torch.float32)
     lin_mag = cmd[:, :2].norm(dim=1)                          # (N,)
-    moving = lin_mag >= lin_deadband
+    ang_mag = cmd[:, 2].abs()                                 # (N,)
+    moving = (lin_mag >= lin_deadband) | (ang_mag >= ang_deadband)
 
     # --- contact forces between two feet (norms) ---
     if use_history:
         f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]  # (N,H,2,3)
         fmag = f_hist.norm(dim=-1).amax(dim=1)                                # (N,2)        
     else:
-        f_now = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]              # (N,2,3)        
-        fmag = f_now.norm(dim=-1)                                            # (N,2)
-        #print(f"fmag {fmag}")
+        f_now = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]               # (N,2,3)        
+        fmag = f_now.norm(dim=-1)                                             # (N,2)
 
     if contact_force_threshold > 0.0:
         fmag = torch.where(fmag > contact_force_threshold, fmag, torch.zeros_like(fmag))
@@ -602,7 +625,7 @@ def step_phase_reward(
     if not hasattr(env, "_g2_phase"):
         env._g2_phase = torch.zeros(N, dtype=torch.float32, device=device)
 
-    # frequency by speed: f = k_f * |v| (Hz)
+    # frequency by *linear* speed (оставил как было; при желании можно учесть ang_mag)
     f_hz = freq_gain_hz_per_mps * lin_mag
     if clamp_freq is not None:
         f_hz = torch.clamp(f_hz, clamp_freq[0], clamp_freq[1])
@@ -611,9 +634,7 @@ def step_phase_reward(
     dphi = (2.0 * torch.pi * f_hz * dt).to(device)
     env._g2_phase = (env._g2_phase + dphi) % (2.0 * torch.pi)
 
-    # --- Reference signals for legs ---
-    # Right leg: φ_R = φ
-    # Left leg: φ_L = φ + π (antiphase)
+    # --- Reference signals for legs (antiphase) ---
     phi = env._g2_phase
     s_ref_R = amp_ref * torch.relu(torch.sin(phi))
     s_ref_L = amp_ref * torch.relu(torch.sin(phi + torch.pi))
@@ -625,31 +646,21 @@ def step_phase_reward(
     ref_R = torch.clamp(s_ref_R / (amp_ref + eps), 0.0, 1.0)
     ref_L = torch.clamp(s_ref_L / (amp_ref + eps), 0.0, 1.0)
 
-    # --- MSE for each leg (for this step) ---
+    # --- MAE per leg ---
     mae_R = torch.abs(act_R - ref_R)
     mae_L = torch.abs(act_L - ref_L)
-    #print("Step_PHASE")
-    #print(f"mae_R {mae_R}")
-    #print(f"mae_L {mae_L}")    
-    
 
-    # --- exponent from MSE, multiplication of legs ---
-    #reward = 1.5* np.exp(- (1 * vel_mse) / (std_vel**2 + eps)) - 0.5 
-    #r_R = 1.5 * torch.exp(-mae_R / (std_vel**2 + eps)) - 0.5
-    #r_L = 1.5 * torch.exp(-mae_L / (std_vel**2 + eps)) - 0.5
-    r_R = torch.exp(-(mae_R)**2 / (2.0 * (std_vel**2) + eps)) 
-    r_L = torch.exp(-(mae_L)**2 / (2.0 * (std_vel**2) + eps)) 
-    #print(f"r_R {r_R}")
-    #print(f"r_L {r_L}")   
-    
-                          
+    # --- Gaussian kernel on error (faster learning than exp(-|e|/σ²)) ---
+    inv2sig2 = 1.0 / (2.0 * (std_vel**2) + eps)
+    r_R = torch.exp(-(mae_R**2) * inv2sig2)
+    r_L = torch.exp(-(mae_L**2) * inv2sig2)
+
+    # --- average legs (more stable than product) ---
     reward = 0.5 * (r_R + r_L)
 
-    # --- gate on movement: at rest we do not affect the total reward ---
+    # --- gate: reward only when there is linear OR angular command ---
     reward = reward * moving.float()
-    #print(f"step_phase_reward: {reward}")
-
-    return reward 
+    return reward
     
     
 def com_projection_reward(

@@ -11,10 +11,10 @@ from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_mo
 class G1Rewards(RewardsCfg):
     """Reward terms for the MDP."""
 
-    track_lin_vel_xy_exp = RewTerm(
+    track_lin_vel_xy_exp_custom = RewTerm(
         func=mdp.track_lin_vel_xy_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
-    track_ang_vel_z_exp = RewTerm(
+    track_ang_vel_z_exp_custom = RewTerm(
         func=mdp.track_ang_vel_z_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
 #    track_vel_exp_product = RewTerm(
@@ -48,14 +48,14 @@ class G1Rewards(RewardsCfg):
     )  
     '''  
     
-    action_rate_l2 =      RewTerm(func=mdp.action_rate_l2,   weight=-0.01)
-    dof_torques_l2 =      RewTerm(func=mdp.joint_torques_l2, weight=-1e-5)
-    joint_vel_l2 =        RewTerm(func=mdp.joint_vel_l2,     weight= -1.0e-3)
+    action_rate_l2 =      RewTerm(func=mdp.action_rate_l2,   weight=-0.001)
+    dof_torques_l2 =      RewTerm(func=mdp.joint_torques_l2, weight=-1e-6)
+    joint_vel_l2 =        RewTerm(func=mdp.joint_vel_l2,     weight= -1.0e-5)
     dof_acc_l2 =          RewTerm(func=mdp.joint_acc_l2,     weight=-2e-07)
     
     feet_slide = RewTerm(
         func=mdp.feet_slide,
-        weight=-0.1, 
+        weight=-0.5, 
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
             "asset_cfg": SceneEntityCfg("robot", body_names=".*_ankle_roll_link"),
@@ -79,7 +79,7 @@ class G1Rewards(RewardsCfg):
         func=pelvis_height_target_reward, weight=0.5)    
 
     '''
-    termination_penalty = RewTerm(func=mdp.is_terminated,    weight=-20.0)  # -200.0
+    termination_penalty = RewTerm(func=mdp.is_terminated,    weight=-50.0)  # -200.0
     lin_vel_z_l2 =        RewTerm(func=mdp.lin_vel_z_l2,     weight=-2.0)
     ang_vel_xy_l2 =       RewTerm(func=mdp.ang_vel_xy_l2,    weight=-0.05)
     
@@ -151,9 +151,18 @@ class G1Rewards(RewardsCfg):
         params={
             "command_name": "base_velocity",
             "asset_cfg": SceneEntityCfg("robot"),
-            "min_cmd_speed": 0.1,
-            "lin_speed_threshold": 0.05,
-            "scale": 1.0,
+
+            # --- linear component ---
+            "lin_speed_threshold": 0.03,  # m/s: actually "almost standing"
+            "lin_scale": 1.0,             # additional scale for linear penalty
+
+            # --- corner component around z ---
+            "ang_speed_threshold": 0.03,  # rad/s: essentially "almost no rotation"
+            "ang_scale": 1.0,             # additional scale for corner penalty
+
+            # --- deadbands for readability (duplicate the meanings of min_cmd_* above) ---
+            "lin_deadband": 0.03,         # m/s: "command ≈ 0"
+            "ang_deadband": 0.03,         # rad/s: "command ≈ 0"
         }
     )                
 
@@ -193,13 +202,22 @@ class G1Rewards(RewardsCfg):
         weight=4.0,   
         params={
         "command_name": "base_velocity",
-        "sensor_cfg": SceneEntityCfg("contact_forces",
-                                     body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
-        "lin_deadband": 0.03,
-        "amp_ref": 800.0,             
-        "freq_gain_hz_per_mps": 2.0,  # at |v|=0.5 -> 1 Hz, at 1.0 -> 2 Hz
-        "std_vel": 0.25,
-        "use_history": False,
+        "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
+        # --- commands and gates ---
+        "lin_deadband": 0.03,      # m/s: "almost stopped" (linear)
+        "ang_deadband": 0.03,      # rad/s: "almost stopped" (angular)
+        "use_history": True,       # take max over history for robustness
+
+        # --- contact force ---
+        "contact_force_threshold": 5.0,   # H: optional threshold (0 - no threshold)
+        "amp_ref": 400.0,                 # H: desired max force for normalization and reference A
+
+        # --- phase generator ---
+        "freq_gain_hz_per_mps": 2.0,     # f = k_f * |v|; at |v|=0.5 => 1 Hz; at |v|=1.0 => 2 Hz
+        "clamp_freq": (0.0, 4.0),        
+
+        # --- exponent from MAE (gaussian kernel) ---
+        "std_vel": 0.25,                 # controls sharpness of exp decay
         },
     )  
     
@@ -224,7 +242,7 @@ class G1Rewards(RewardsCfg):
 
     step_width_penalty = RewTerm(
         func=step_width_penalty,
-        weight=-0.5,  
+        weight=-10.0,  
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces",
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
