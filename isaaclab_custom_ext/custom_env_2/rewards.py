@@ -558,7 +558,7 @@ def step_phase_reward(
 
     # --- contact force ---
     contact_force_threshold: float = 0.0,  # H: optional threshold (0 - no threshold)
-    amp_ref: float = 800.0,                # H: desired max force for normalization and reference A
+    amp_ref: float = 400.0,                # H: desired max force for normalization and reference A
 
     # --- phase generator ---
     freq_gain_hz_per_mps: float = 2.0,     # f = k_f * |v|; at |v|=0.5 => 1 Hz; at |v|=1.0 => 2 Hz
@@ -593,6 +593,7 @@ def step_phase_reward(
     else:
         f_now = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]              # (N,2,3)        
         fmag = f_now.norm(dim=-1)                                            # (N,2)
+        print(f"fmag {fmag}")
 
     if contact_force_threshold > 0.0:
         fmag = torch.where(fmag > contact_force_threshold, fmag, torch.zeros_like(fmag))
@@ -636,14 +637,13 @@ def step_phase_reward(
     #reward = 1.5* np.exp(- (1 * vel_mse) / (std_vel**2 + eps)) - 0.5 
     #r_R = 1.5 * torch.exp(-mae_R / (std_vel**2 + eps)) - 0.5
     #r_L = 1.5 * torch.exp(-mae_L / (std_vel**2 + eps)) - 0.5
-    r_R = torch.exp(-mae_R / (std_vel**2 + eps)) 
-    r_L = torch.exp(-mae_L / (std_vel**2 + eps)) 
+    r_R = torch.exp(-(mae_R)**2 / (2.0 * (std_vel**2) + eps)) 
+    r_L = torch.exp(-(mae_L)**2 / (2.0 * (std_vel**2) + eps)) 
     #print(f"r_R {r_R}")
     #print(f"r_L {r_L}")   
     
-    cond = (r_R < 0) & (r_L < 0)         
-    prod = r_R * r_L                       
-    reward = torch.where(cond, -prod, prod)
+                          
+    reward = 0.5 * (r_R + r_L)
 
     # --- gate on movement: at rest we do not affect the total reward ---
     reward = reward * moving.float()

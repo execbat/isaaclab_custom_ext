@@ -199,7 +199,7 @@ class G1Rewards(RewardsCfg):
         "amp_ref": 800.0,             
         "freq_gain_hz_per_mps": 2.0,  # at |v|=0.5 -> 1 Hz, at 1.0 -> 2 Hz
         "std_vel": 0.25,
-        "use_history": True,
+        "use_history": False,
         },
     )  
     
