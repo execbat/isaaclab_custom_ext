@@ -169,26 +169,35 @@ class G1Rewards(RewardsCfg):
     
     alt_airtime_term = RewTerm(
         func=alternating_airtime_reward,
-        weight=2.5,
+        weight=4.0,
         params={
             "command_name": "base_velocity",
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
             "asset_cfg":  SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
-            "lin_deadband": 0.03,
-            "ang_deadband": 0.03,
-            "contact_force_threshold": 5.0,
-            "use_history": True,
-            "eq_sigma": 0.08,
-            "touchdown_equal_bonus": 1.0,
-            "max_swing_time": 1.0,
-            "excess_penalty_scale": 1.5,  
-            "same_lead_penalty": 0.4,
-            "flight_penalty": 1.0,
-            "idle_double_support_bonus_val": 1.0,
-            },
+            # --- command gating ---
+            "lin_deadband": 0.03,     # m/s: below -> linear command considered "near zero"
+            "ang_deadband": 0.03,     # rad/s: below -> angular command considered "near zero"
+
+            # --- contacts ---
+            "contact_force_threshold": 5.0,  # N: contact if |F| > threshold
+            "use_history": True,             # robust to noise (use max over history window)
+
+            # --- target swing timing (per-step shaping while airborne) ---
+            "target_swing_time": 1.0,       # s: desired airborne duration per leg
+            "swing_sigma": 0.10,             # s: Gaussian width; smaller = stricter to target
+
+            # --- swing time cap ---
+            "max_swing_time": 1.5,           # s: hard cap (excess is penalized every step)
+            "excess_penalty_scale": 1.0,     # penalty per 1s of excess per step
+
+            # --- helpers ---
+            "same_lead_penalty": 0.4,        # penalty if the same leg "leads" twice in a row
+            "flight_penalty": 1.0,           # penalty when both feet are airborne while moving
+            "idle_double_support_bonus_val": 1.0,  # bonus for double support at rest
+        },
     )   
     
-            
+    '''        
     step_phase_reward = RewTerm(
         func=step_phase_reward,
         weight=4.0,   
@@ -231,7 +240,7 @@ class G1Rewards(RewardsCfg):
         "no_support_penalty": 0.0, # if desired, you can enter a small penalty, for example 0.1
         },
     )
-
+    '''
     step_width_penalty = RewTerm(
         func=step_width_penalty,
         weight=-10.0,  
