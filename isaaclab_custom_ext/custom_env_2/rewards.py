@@ -672,7 +672,7 @@ def step_phase_reward(
     if not hasattr(env, "_g2_phase"):
         env._g2_phase = torch.zeros(N, dtype=torch.float32, device=device)
 
-    # frequency by *linear* speed (оставил как было; при желании можно учесть ang_mag)
+    # frequency by *linear* speed 
     f_hz = freq_gain_hz_per_mps * lin_mag
     if clamp_freq is not None:
         f_hz = torch.clamp(f_hz, clamp_freq[0], clamp_freq[1])

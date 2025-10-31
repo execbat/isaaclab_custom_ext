@@ -205,7 +205,7 @@ class G1Rewards(RewardsCfg):
         "amp_ref": 400.0,                 # H: desired max force for normalization and reference A
 
         # --- phase generator ---
-        "freq_gain_hz_per_mps": 2.0,     # f = k_f * |v|; at |v|=0.5 => 1 Hz; at |v|=1.0 => 2 Hz
+        "freq_gain_hz_per_mps": 0.5, # 2.0,     # f = k_f * |v|; at |v|=0.5 => 1 Hz; at |v|=1.0 => 2 Hz
         "clamp_freq": (0.0, 4.0),        
 
         # --- exponent from MAE (gaussian kernel) ---
