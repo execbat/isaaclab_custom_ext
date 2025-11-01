@@ -895,26 +895,30 @@ def foot_symmetry_step_reward_cmddir(
     contact_force_threshold: float = 5.0,  # N: contact if |F| > threshold
     use_history: bool = True,              # robust to noise (max over history)
 
-    # --- touchdown symmetry kernel (direction-aware) ---
-    sym_lambda: float = 0.06,       # m: length scale for exp(-|x_td + dir*x_lo| / sym_lambda)
+    # --- touchdown kernel (direction-aware, nonnegative) ---
+    sym_lambda: float = 0.06,       # m: exp(-|x_td + dir*x_lo| / sym_lambda)
     sign_margin: float = 0.0,       # m: tolerance around 0 for sign checks
-    sign_penalty: float = 1.0,      # hard penalty per touchdown if sign is wrong
 
-    # --- standing preference (both feet near pelvis X=0) ---
+    # --- standing preference (nonnegative) ---
     stand_sigma: float = 0.08,      # m
     stand_bonus: float = 1.0,       # scale
-
-    # --- safety ---
-    flight_penalty: float = 1.0,    # penalty when both feet are airborne while moving
 ) -> torch.Tensor:
     """
-    Direction-aware step placement relative to pelvis X:
-      - REST (both commands near zero): reward both feet near pelvis X=0.
-      - MOVING: at each touchdown, reward small |x_td + dir*x_lo| (dir=+1 forward, -1 backward)
-                using exp(-|...|/sym_lambda).
-                If expected signs are violated (e.g., forward: x_td<=margin or x_lo>=-margin),
-                apply a hard penalty -sign_penalty and give no positive reward for that event.
+    Nonnegative reward. Positive only if touchdown sign is correct.
+
+    REST (near-zero linear & angular command):
+      + stand_bonus * exp(-(xL^2 + xR^2)/(2*stand_sigma^2)) when both feet are on ground.
+
+    MOVING:
+      At each touchdown:
+        - dir = +1 (forward) if pelvis-frame vx_cmd >= 0 else -1 (backward).
+        - Check signs:
+            forward:  x_td > +margin  and  x_lo < -margin
+            backward: x_td < -margin  and  x_lo > +margin
+        - If signs OK → add  exp(-|x_td + dir*x_lo| / sym_lambda)  ∈ (0,1].
+        - If signs NOT OK → add 0.
     """
+
     if sensor_cfg is None or asset_cfg is None:
         raise ValueError("Provide sensor_cfg ([L,R] contact sensor) and asset_cfg ('robot').")
 
@@ -923,20 +927,22 @@ def foot_symmetry_step_reward_cmddir(
     robot = env.scene[asset_cfg.name]
     cs    = env.scene.sensors[sensor_cfg.name]
 
-    # pelvis pose and transforms
-    pelvis_pos_w  = robot.data.root_pos_w
-    pelvis_quat_w = robot.data.root_quat_w
-    R_wp = quat_wxyz_to_rotmat(pelvis_quat_w)     # (N,3,3)
-    R_pw = R_wp.transpose(1, 2)
+    # --- pelvis pose & transforms ---
+    pelvis_pos_w  = robot.data.root_pos_w          # (N,3)
+    pelvis_quat_w = robot.data.root_quat_w         # (N,4) (w,x,y,z)
 
-    # command -> pelvis frame
+    # you should have this util; otherwise replace with your rot conversion
+    R_wp = quat_wxyz_to_rotmat(pelvis_quat_w)      # world_from_pelvis, (N,3,3)
+    R_pw = R_wp.transpose(1, 2)                    # pelvis_from_world
+
+    # --- command -> pelvis frame ---
     cmd = env.command_manager.get_term(command_name).command   # (N,3): [vx_w, vy_w, wz]
     cmd = torch.as_tensor(cmd, device=device, dtype=torch.float32)
     v_xy_world = cmd[:, :2]
-    wz_cmd = cmd[:, 2]
+    wz_cmd     = cmd[:, 2]
 
-    v_xyz_world = torch.cat([v_xy_world, torch.zeros_like(v_xy_world[:, :1])], dim=1)  # (N,3)
-    v_xyz_pelvis = (R_pw @ v_xyz_world.unsqueeze(-1)).squeeze(-1)                      # (N,3)
+    v_xyz_world  = torch.cat([v_xy_world, torch.zeros_like(v_xy_world[:, :1])], dim=1)   # (N,3)
+    v_xyz_pelvis = (R_pw @ v_xyz_world.unsqueeze(-1)).squeeze(-1)                        # (N,3)
     v_xy_pelvis  = v_xyz_pelvis[:, :2]
     vx_cmd_pelvis = v_xy_pelvis[:, 0]
 
@@ -945,33 +951,33 @@ def foot_symmetry_step_reward_cmddir(
     near_zero = (lin_mag < lin_deadband) & (ang_mag < ang_deadband)
     moving    = ~near_zero
 
-    # command direction along pelvis X
-    dir_sign = torch.where(vx_cmd_pelvis >= 0.0, torch.ones_like(vx_cmd_pelvis), -torch.ones_like(vx_cmd_pelvis))
+    # dir along pelvis X: +1 forward, -1 backward
+    dir_sign = torch.where(vx_cmd_pelvis >= 0.0,
+                           torch.ones_like(vx_cmd_pelvis),
+                           -torch.ones_like(vx_cmd_pelvis))
 
-    # contacts
+    # --- contacts ---
     if use_history:
         f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]  # (N,H,2,3)
         fmag   = f_hist.norm(dim=-1).amax(dim=1)                              # (N,2)
     else:
         f_now  = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]             # (N,2,3)
-        fmag   = f_now.norm(dim=-1)                                          # (N,2)
+        fmag   = f_now.norm(dim=-1)
 
     Lc = fmag[:, 0] > contact_force_threshold
     Rc = fmag[:, 1] > contact_force_threshold
     both_down = Lc & Rc
-    any_down  = Lc | Rc
-    flight    = ~any_down
 
-    # foot X in pelvis frame
+    # --- foot X positions in pelvis frame ---
     body_pos_w = robot.data.body_state_w[:, sensor_cfg.body_ids, :3]  # (N,2,3)
     dL_w = body_pos_w[:, 0, :] - pelvis_pos_w
     dR_w = body_pos_w[:, 1, :] - pelvis_pos_w
     dL_p = (R_pw @ dL_w.unsqueeze(-1)).squeeze(-1)
     dR_p = (R_pw @ dR_w.unsqueeze(-1)).squeeze(-1)
-    xL = dL_p[:, 0]
-    xR = dR_p[:, 0]
+    xL   = dL_p[:, 0]
+    xR   = dR_p[:, 0]
 
-    # state: prev contacts + last liftoff X
+    # --- persistent state: prev contacts + last liftoff X ---
     if not hasattr(env, "_fs_prev_Lc"):
         env._fs_prev_Lc = torch.zeros(N, dtype=torch.bool,    device=device)
         env._fs_prev_Rc = torch.zeros(N, dtype=torch.bool,    device=device)
@@ -983,52 +989,47 @@ def foot_symmetry_step_reward_cmddir(
     touchdown_L = Lc & (~env._fs_prev_Lc)
     touchdown_R = Rc & (~env._fs_prev_Rc)
 
+    # cache liftoff X
     env._fs_last_liftoff_x_L = torch.where(liftoff_L, xL, env._fs_last_liftoff_x_L)
     env._fs_last_liftoff_x_R = torch.where(liftoff_R, xR, env._fs_last_liftoff_x_R)
 
-    # reward
+    # --- reward (nonnegative) ---
     reward = torch.zeros(N, dtype=torch.float32, device=device)
 
-    # standing: both feet near pelvis X=0
+    # REST: both feet near pelvis X=0
     if near_zero.any():
-        inv2_s_stand = 1.0 / (2.0 * (stand_sigma**2) + 1e-12)
-        stand_score  = torch.exp(-(xL**2 + xR**2) * inv2_s_stand)
+        inv2_s = 1.0 / (2.0 * (stand_sigma**2) + 1e-12)
+        stand_score = torch.exp(-(xL**2 + xR**2) * inv2_s)
         reward += stand_bonus * (near_zero & both_down).float() * stand_score
 
+    # MOVING: add positive reward only on correct-sign touchdowns
     if moving.any():
-        # penalize flight (both airborne)
-        reward -= flight_penalty * (moving & flight).float()
-
-        # ABS-based kernel on touchdown: exp(-|x_td + dir*x_lo| / sym_lambda)
-        def add_td_reward(td_mask, x_td_all, x_lo_last_all, dir_all):
+        def add_td(td_mask, x_td_all, x_lo_last_all, dir_all):
             if not td_mask.any():
                 return
             x_td = x_td_all[td_mask]
             x_lo = x_lo_last_all[td_mask]
             dsgn = dir_all[td_mask]
 
-            # expected signs:
-            # forward (d=+1): x_td > +margin, x_lo < -margin
-            # backward(d=-1): x_td < -margin, x_lo > +margin
+            # sign checks
             td_ok = torch.where(dsgn > 0, x_td >  sign_margin, x_td < -sign_margin)
             lo_ok = torch.where(dsgn > 0, x_lo < -sign_margin, x_lo >  sign_margin)
             ok = td_ok & lo_ok
 
-            # core reward only if signs are correct
+            # positive only if signs are correct
             core = torch.exp(-(x_td + dsgn * x_lo).abs() / (sym_lambda + 1e-12))
-
             out = torch.zeros_like(x_td)
-            # good sign -> add core; bad sign -> hard penalty
-            out[ ok]  = core[ok]
-            out[~ok] -= float(sign_penalty)
+            out[ok] = core[ok]
 
             reward[td_mask] += out
 
-        add_td_reward(touchdown_L, xL, env._fs_last_liftoff_x_L, dir_sign)
-        add_td_reward(touchdown_R, xR, env._fs_last_liftoff_x_R, dir_sign)
+        add_td(touchdown_L, xL, env._fs_last_liftoff_x_L, dir_sign)
+        add_td(touchdown_R, xR, env._fs_last_liftoff_x_R, dir_sign)
 
     # update prev contacts
     env._fs_prev_Lc = Lc
     env._fs_prev_Rc = Rc
 
+    # guaranteed nonnegative
+    reward.clamp(min=0.0)
     return reward

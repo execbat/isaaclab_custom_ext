@@ -209,20 +209,16 @@ class G1Rewards(RewardsCfg):
             "ang_deadband": 0.03,     # rad/s
 
             # --- contacts ---
-            "contact_force_threshold": 5.0,  # N
-            "use_history": True,
+            "contact_force_threshold": 5.0,  # N: contact if |F| > threshold
+            "use_history": True,              # robust to noise (max over history)
 
-            # --- touchdown symmetry kernel (direction-aware) ---
-            "sym_lambda": 0.06,       # m: length scale for exp(-|x_td + dir*x_lo| / sym_lambda)
+            # --- touchdown kernel (direction-aware, nonnegative) ---
+            "sym_lambda": 0.06,       # m: exp(-|x_td + dir*x_lo| / sym_lambda)
             "sign_margin": 0.0,       # m: tolerance around 0 for sign checks
-            "sign_penalty": 1.0,      # hard penalty per touchdown if sign is wrong
 
-            # --- standing preference (both feet near pelvis X=0) ---
-            "stand_sigma": 0.08,
-            "stand_bonus": 1.0,
-
-            # --- safety ---
-            "flight_penalty": 1.0,    # penalty when both feet airborne while moving
+            # --- standing preference (nonnegative) ---
+            "stand_sigma": 0.08,      # m
+            "stand_bonus": 1.0,       # scale
         },
     )   
 
