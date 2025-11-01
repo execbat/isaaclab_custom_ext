@@ -855,4 +855,218 @@ def step_width_penalty(
         penalty = torch.where(any_down, penalty, torch.zeros_like(penalty))
     
     #print(f"penalty: {penalty}")
-    return penalty          
+    return penalty   
+    
+    
+
+
+def quat_wxyz_to_rotmat(q: torch.Tensor) -> torch.Tensor:
+    """
+    Isaac Lab: root_quat_w is (w,x,y,z) in world frame.
+    Convert quaternion (w,x,y,z) to rotation matrix R_world_from_pelvis. Shape: [N,3,3].
+    """
+    w, x, y, z = q.unbind(dim=-1)
+    n = torch.clamp((w*w + x*x + y*y + z*z).sqrt(), min=1e-9)
+    w, x, y, z = w/n, x/n, y/n, z/n
+
+    xx, yy, zz = x*x, y*y, z*z
+    xy, xz, yz = x*y, x*z, y*z
+    wx, wy, wz = w*x, w*y, w*z
+
+    R = torch.stack([
+        1 - 2*(yy + zz),  2*(xy - wz),      2*(xz + wy),
+        2*(xy + wz),      1 - 2*(xx + zz),  2*(yz - wx),
+        2*(xz - wy),      2*(yz + wx),      1 - 2*(xx + yy),
+    ], dim=-1).reshape(-1, 3, 3)
+    return R
+
+
+def foot_symmetry_step_reward_cmddir(
+    env,
+    command_name: str = "base_velocity",
+    sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
+
+    # --- command gating ---
+    lin_deadband: float = 0.03,     # m/s: near-zero linear command in pelvis XY
+    ang_deadband: float = 0.03,     # rad/s: near-zero yaw command
+
+    # --- contacts ---
+    contact_force_threshold: float = 5.0,  # N: contact if |F| > threshold
+    use_history: bool = True,              # robust to noise (max over history)
+
+    # --- touchdown symmetry kernel (direction-aware) ---
+    sym_sigma: float = 0.08,        # m: width for exp(- (x_td + dir*x_lo)^2 / (2*sigma^2))
+    gate_k: float = 60.0,           # sigmoid steepness for sign gates
+    sign_margin: float = 0.0,       # m: margin for sign gates (e.g., 0.005–0.01)
+
+    # --- standing preference (both feet near pelvis X=0) ---
+    stand_sigma: float = 0.08,      # m
+    stand_bonus: float = 1.0,       # scale
+
+    # --- safety ---
+    flight_penalty: float = 1.0,    # penalty when both feet are airborne while moving
+) -> torch.Tensor:
+    """
+    Human-like step placement relative to pelvis, driven by commanded direction:
+
+    Gating (from command in pelvis frame):
+      • REST (|v_xy| < lin_deadband and |wz| < ang_deadband):
+          Reward both feet in contact near pelvis X=0.
+      • MOVING:
+          On each foot TOUCHDOWN:
+            - Determine commanded X direction in pelvis frame: dir = +1 (forward) if vx_cmd>=0 else -1 (backward).
+            - Reward symmetry: x_td + dir * x_lo ≈ 0  (touchdown in front for forward, behind for backward,
+              liftoff opposite side). Core = exp( - (x_td + dir*x_lo)^2 / (2*sigma^2) ).
+            - Apply smooth sign-gates to enforce expected signs: for forward (dir=+1) → x_td>0 & x_lo<0;
+              for backward (dir=-1) → x_td<0 & x_lo>0.
+          Also penalize 'flight' (both feet airborne) while moving.
+
+    Assumptions:
+      - sensor_cfg.body_ids == [LeftFoot, RightFoot].
+      - robot.data.root_pos_w  : (N,3)
+      - robot.data.root_quat_w : (N,4) as (w,x,y,z)
+      - robot.data.body_state_w: positions of bodies in world; use [:, body_ids, :3].
+      - command_manager term returns (N,3): [vx_world, vy_world, wz].
+
+    Returns:
+      Tensor[N] reward.
+    """
+    if sensor_cfg is None or asset_cfg is None:
+        raise ValueError("Provide sensor_cfg (contact sensor, [L,R]) and asset_cfg ('robot').")
+
+    device = env.device
+    N = env.num_envs
+    robot = env.scene[asset_cfg.name]
+    cs     = env.scene.sensors[sensor_cfg.name]
+
+    # ------------------------------------------------------------------
+    # Pelvis pose (world) and transforms
+    # ------------------------------------------------------------------
+    pelvis_pos_w  = robot.data.root_pos_w          # (N,3)
+    pelvis_quat_w = robot.data.root_quat_w         # (N,4) (w,x,y,z)
+
+    R_wp = quat_wxyz_to_rotmat(pelvis_quat_w)      # R_world_from_pelvis, (N,3,3)
+    R_pw = R_wp.transpose(1, 2)                    # R_pelvis_from_world
+
+    # ------------------------------------------------------------------
+    # Command → pelvis frame (XY)
+    # ------------------------------------------------------------------
+    cmd = env.command_manager.get_term(command_name).command   # (N,3): [vx_w, vy_w, wz]
+    cmd = torch.as_tensor(cmd, device=device, dtype=torch.float32)
+    v_xy_world = cmd[:, :2]                                    # (N,2)
+    wz_cmd     = cmd[:, 2]                                     # (N,)
+
+    v_xyz_world = torch.cat([v_xy_world, torch.zeros_like(v_xy_world[:, :1])], dim=1)  # (N,3)
+    v_xyz_pelvis = (R_pw @ v_xyz_world.unsqueeze(-1)).squeeze(-1)                      # (N,3)
+    v_xy_pelvis  = v_xyz_pelvis[:, :2]
+    vx_cmd_pelvis = v_xy_pelvis[:, 0]
+
+    lin_mag = torch.linalg.norm(v_xy_pelvis, dim=1)
+    ang_mag = wz_cmd.abs()
+    near_zero = (lin_mag < lin_deadband) & (ang_mag < ang_deadband)
+    moving    = ~near_zero
+
+    # Direction sign from command X (pelvis): +1 forward, -1 backward
+    dir_sign = torch.where(vx_cmd_pelvis >= 0.0,
+                           torch.ones_like(vx_cmd_pelvis),
+                           -torch.ones_like(vx_cmd_pelvis))
+
+    # ------------------------------------------------------------------
+    # Foot contacts (booleans)
+    # ------------------------------------------------------------------
+    if use_history:
+        # [N,H,2,3] -> max over H of |F| → (N,2)
+        f_hist = cs.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :]
+        fmag   = f_hist.norm(dim=-1).amax(dim=1)
+    else:
+        f_now  = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]
+        fmag   = f_now.norm(dim=-1)
+
+    Lc = fmag[:, 0] > contact_force_threshold
+    Rc = fmag[:, 1] > contact_force_threshold
+    both_down = Lc & Rc
+    any_down  = Lc | Rc
+    flight    = ~any_down
+
+    # ------------------------------------------------------------------
+    # Foot positions in pelvis frame (X)
+    # ------------------------------------------------------------------
+    body_pos_w = robot.data.body_state_w[:, sensor_cfg.body_ids, :3]  # (N,2,3)
+    dL_w = body_pos_w[:, 0, :] - pelvis_pos_w                          # (N,3)
+    dR_w = body_pos_w[:, 1, :] - pelvis_pos_w                          # (N,3)
+
+    dL_p = (R_pw @ dL_w.unsqueeze(-1)).squeeze(-1)                     # (N,3)
+    dR_p = (R_pw @ dR_w.unsqueeze(-1)).squeeze(-1)                     # (N,3)
+
+    xL = dL_p[:, 0]   # pelvis +X forward
+    xR = dR_p[:, 0]
+
+    # ------------------------------------------------------------------
+    # Persistent state (prev contacts + last liftoff X for each foot)
+    # ------------------------------------------------------------------
+    # NOTE: Use env buffers pre-created in your env init for zero-allocation at runtime
+    if not hasattr(env, "_fs_prev_Lc"):
+        env._fs_prev_Lc = torch.zeros(N, dtype=torch.bool,    device=device)
+        env._fs_prev_Rc = torch.zeros(N, dtype=torch.bool,    device=device)
+        env._fs_last_liftoff_x_L = torch.zeros(N, dtype=torch.float32, device=device)
+        env._fs_last_liftoff_x_R = torch.zeros(N, dtype=torch.float32, device=device)
+
+    liftoff_L   = (~Lc) & env._fs_prev_Lc
+    liftoff_R   = (~Rc) & env._fs_prev_Rc
+    touchdown_L = Lc & (~env._fs_prev_Lc)
+    touchdown_R = Rc & (~env._fs_prev_Rc)
+
+    # cache liftoff X (pelvis frame)
+    env._fs_last_liftoff_x_L = torch.where(liftoff_L, xL, env._fs_last_liftoff_x_L)
+    env._fs_last_liftoff_x_R = torch.where(liftoff_R, xR, env._fs_last_liftoff_x_R)
+
+    # ------------------------------------------------------------------
+    # Reward
+    # ------------------------------------------------------------------
+    reward = torch.zeros(N, dtype=torch.float32, device=device)
+
+    # Standing: both feet near X=0 in pelvis frame
+    if near_zero.any():
+        inv2_s_stand = 1.0 / (2.0 * (stand_sigma**2) + 1e-12)
+        stand_score  = torch.exp(-(xL**2 + xR**2) * inv2_s_stand)
+        reward += stand_bonus * (near_zero & both_down).float() * stand_score
+
+    # Moving: touchdown symmetry + sign gates + flight penalty
+    if moving.any():
+        reward -= flight_penalty * (moving & flight).float()
+
+        inv2_s_sym = 1.0 / (2.0 * (sym_sigma**2) + 1e-12)
+
+        # smooth sign gate builder:
+        # forward (dir=+1): expect x_td>+margin, x_lo<-margin
+        # backward(dir=-1): expect x_td<-margin, x_lo>+margin
+        def sign_gate(x_td, x_lo, dsgn):
+            gate_td = torch.sigmoid(gate_k * (dsgn * x_td - sign_margin))
+            gate_lo = torch.sigmoid(gate_k * (-dsgn * x_lo - sign_margin))
+            return gate_td * gate_lo  # [0,1]
+
+        # LEFT touchdown
+        if touchdown_L.any():
+            x_lo = env._fs_last_liftoff_x_L[touchdown_L]
+            x_td = xL[touchdown_L]
+            dsgn = dir_sign[touchdown_L]
+            core = torch.exp(-((x_td + dsgn * x_lo)**2) * inv2_s_sym)
+            gate = sign_gate(x_td, x_lo, dsgn)
+            reward[touchdown_L] += core * gate - (1.0 - gate) * 0.5  # 0.5 — мягкий штраф за неверный знак
+
+        # RIGHT touchdown
+        if touchdown_R.any():
+            x_lo = env._fs_last_liftoff_x_R[touchdown_R]
+            x_td = xR[touchdown_R]
+            dsgn = dir_sign[touchdown_R]
+            core = torch.exp(-((x_td + dsgn * x_lo)**2) * inv2_s_sym)
+            gate = sign_gate(x_td, x_lo, dsgn)
+            reward[touchdown_R] += core * gate - (1.0 - gate) * 0.5
+
+    # update prev contacts for next step
+    env._fs_prev_Lc = Lc
+    env._fs_prev_Rc = Rc
+
+    return reward
+

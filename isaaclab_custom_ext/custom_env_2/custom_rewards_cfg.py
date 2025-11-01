@@ -5,7 +5,7 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 import math
 
-from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_motion_penalty, lateral_slip_penalty, heading_alignment_reward, leg_pelvis_torso_coalignment_reward, idle_penalty, angvel_flat_l2_product, alternating_airtime_reward, step_phase_reward, com_projection_reward, step_width_penalty, track_lin_vel_xy_exp_custom, track_ang_vel_z_exp_custom
+from .rewards import feet_impact_vel, pelvis_height_target_reward, no_command_motion_penalty, lateral_slip_penalty, heading_alignment_reward, leg_pelvis_torso_coalignment_reward, idle_penalty, angvel_flat_l2_product, alternating_airtime_reward, step_phase_reward, com_projection_reward, step_width_penalty, track_lin_vel_xy_exp_custom, track_ang_vel_z_exp_custom, foot_symmetry_step_reward_cmddir
 
 @configclass
 class G1Rewards(RewardsCfg):
@@ -169,7 +169,7 @@ class G1Rewards(RewardsCfg):
     
     alt_airtime_term = RewTerm(
         func=alternating_airtime_reward,
-        weight=4.0,
+        weight=2.0, # 4.0
         params={
             "command_name": "base_velocity",
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
@@ -196,6 +196,38 @@ class G1Rewards(RewardsCfg):
             "idle_double_support_bonus_val": 1.0,  # bonus for double support at rest
         },
     )   
+
+    foot_symmetry_step_reward = RewTerm(
+        func=foot_symmetry_step_reward_cmddir,
+        weight=2.0,
+        params={
+            "command_name": "base_velocity",
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
+            "asset_cfg":  SceneEntityCfg("robot",          body_names=".*_ankle_roll_link"),
+            # --- command gating ---
+            "lin_deadband": 0.03,     # m/s
+            "ang_deadband": 0.03,     # rad/s
+
+            # --- contacts ---
+            "contact_force_threshold": 5.0,  # N
+            "use_history": True,
+
+            # --- symmetry kernel (applied at each touchdown) ---
+            "sym_sigma": 0.08,        # m: width for exp(-(x_td + dir*x_lo)^2 / (2*sigma^2))
+            "gate_k": 60.0,           # sigmoid steepness for sign gates
+            "sign_margin": 0.0,       # m: optional margin for sign gates (e.g., 0.01)
+
+            # --- standing preference (both feet near pelvis X=0) ---
+            "stand_sigma": 0.08,
+            "stand_bonus": 1.0,
+
+            # --- safety ---
+            "flight_penalty": 1.0,    # penalty when both feet airborne while moving
+        },
+    )   
+
+
+
     
     '''        
     step_phase_reward = RewTerm(
