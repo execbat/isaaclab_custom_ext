@@ -169,7 +169,7 @@ class G1Rewards(RewardsCfg):
     
     alt_airtime_term = RewTerm(
         func=alternating_airtime_reward,
-        weight=2.0, # 4.0
+        weight=4.0, # 4.0
         params={
             "command_name": "base_velocity",
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
@@ -199,7 +199,7 @@ class G1Rewards(RewardsCfg):
 
     foot_symmetry_step_reward = RewTerm(
         func=foot_symmetry_step_reward_cmddir,
-        weight=2.0,
+        weight=6.0,
         params={
             "command_name": "base_velocity",
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
@@ -212,10 +212,10 @@ class G1Rewards(RewardsCfg):
             "contact_force_threshold": 5.0,  # N
             "use_history": True,
 
-            # --- symmetry kernel (applied at each touchdown) ---
-            "sym_sigma": 0.08,        # m: width for exp(-(x_td + dir*x_lo)^2 / (2*sigma^2))
-            "gate_k": 60.0,           # sigmoid steepness for sign gates
-            "sign_margin": 0.0,       # m: optional margin for sign gates (e.g., 0.01)
+            # --- touchdown symmetry kernel (direction-aware) ---
+            "sym_lambda": 0.06,       # m: length scale for exp(-|x_td + dir*x_lo| / sym_lambda)
+            "sign_margin": 0.0,       # m: tolerance around 0 for sign checks
+            "sign_penalty": 1.0,      # hard penalty per touchdown if sign is wrong
 
             # --- standing preference (both feet near pelvis X=0) ---
             "stand_sigma": 0.08,
@@ -281,7 +281,7 @@ class G1Rewards(RewardsCfg):
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
             "asset_cfg":  SceneEntityCfg("robot",
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
-            "nominal_width": 0.50,
+            "nominal_width": 0.25,
             #"beta": 20.0,
             "contact_force_threshold": 5.0,
             "use_history": True,
