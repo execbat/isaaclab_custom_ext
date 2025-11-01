@@ -895,19 +895,22 @@ def foot_symmetry_step_reward_cmddir(
     contact_force_threshold: float = 5.0,  # N: contact if |F| > threshold
     use_history: bool = True,              # robust to noise (max over history)
 
-    # --- touchdown kernel (direction-aware, nonnegative) ---
-    sym_lambda: float = 0.06,       # m: exp(-|x_td + dir*x_lo| / sym_lambda)
+    # --- touchdown kernel (direction-aware) ---
+    sym_lambda: float = 0.06,       # m: y = exp(-|x_td + dir*x_lo| / sym_lambda)
     sign_margin: float = 0.0,       # m: tolerance around 0 for sign checks
+
+    # --- penalty scale when sign is wrong ---
+    wrong_sign_penalty_scale: float = 0.10,  # multiplies core and flips sign: reward -> -scale*reward
 
     # --- standing preference (nonnegative) ---
     stand_sigma: float = 0.08,      # m
     stand_bonus: float = 1.0,       # scale
 ) -> torch.Tensor:
     """
-    Nonnegative reward. Positive only if touchdown sign is correct.
+    Direction-aware step reward around pelvis X with sign-sensitive scoring.
 
     REST (near-zero linear & angular command):
-      + stand_bonus * exp(-(xL^2 + xR^2)/(2*stand_sigma^2)) when both feet are on ground.
+      + stand_bonus * exp(-(xL^2 + xR^2)/(2*stand_sigma^2)) when both feet in contact.
 
     MOVING:
       At each touchdown:
@@ -915,10 +918,10 @@ def foot_symmetry_step_reward_cmddir(
         - Check signs:
             forward:  x_td > +margin  and  x_lo < -margin
             backward: x_td < -margin  and  x_lo > +margin
-        - If signs OK → add  exp(-|x_td + dir*x_lo| / sym_lambda)  ∈ (0,1].
-        - If signs NOT OK → add 0.
+        - Compute core = exp(-|x_td + dir*x_lo| / sym_lambda).
+        - If signs OK  -> add +core   (0..1].
+          If signs BAD -> add -wrong_sign_penalty_scale * core  (<= 0, scaled).
     """
-
     if sensor_cfg is None or asset_cfg is None:
         raise ValueError("Provide sensor_cfg ([L,R] contact sensor) and asset_cfg ('robot').")
 
@@ -930,12 +933,10 @@ def foot_symmetry_step_reward_cmddir(
     # --- pelvis pose & transforms ---
     pelvis_pos_w  = robot.data.root_pos_w          # (N,3)
     pelvis_quat_w = robot.data.root_quat_w         # (N,4) (w,x,y,z)
+    R_wp = quat_wxyz_to_rotmat(pelvis_quat_w)      # (N,3,3): world_from_pelvis
+    R_pw = R_wp.transpose(1, 2)                    # (N,3,3): pelvis_from_world
 
-    # you should have this util; otherwise replace with your rot conversion
-    R_wp = quat_wxyz_to_rotmat(pelvis_quat_w)      # world_from_pelvis, (N,3,3)
-    R_pw = R_wp.transpose(1, 2)                    # pelvis_from_world
-
-    # --- command -> pelvis frame ---
+    # --- command → pelvis frame ---
     cmd = env.command_manager.get_term(command_name).command   # (N,3): [vx_w, vy_w, wz]
     cmd = torch.as_tensor(cmd, device=device, dtype=torch.float32)
     v_xy_world = cmd[:, :2]
@@ -951,7 +952,7 @@ def foot_symmetry_step_reward_cmddir(
     near_zero = (lin_mag < lin_deadband) & (ang_mag < ang_deadband)
     moving    = ~near_zero
 
-    # dir along pelvis X: +1 forward, -1 backward
+    # direction along pelvis X: +1 forward, -1 backward
     dir_sign = torch.where(vx_cmd_pelvis >= 0.0,
                            torch.ones_like(vx_cmd_pelvis),
                            -torch.ones_like(vx_cmd_pelvis))
@@ -962,7 +963,7 @@ def foot_symmetry_step_reward_cmddir(
         fmag   = f_hist.norm(dim=-1).amax(dim=1)                              # (N,2)
     else:
         f_now  = cs.data.net_forces_w[:, sensor_cfg.body_ids, :]             # (N,2,3)
-        fmag   = f_now.norm(dim=-1)
+        fmag   = f_now.norm(dim=-1)                                          # (N,2)
 
     Lc = fmag[:, 0] > contact_force_threshold
     Rc = fmag[:, 1] > contact_force_threshold
@@ -993,17 +994,18 @@ def foot_symmetry_step_reward_cmddir(
     env._fs_last_liftoff_x_L = torch.where(liftoff_L, xL, env._fs_last_liftoff_x_L)
     env._fs_last_liftoff_x_R = torch.where(liftoff_R, xR, env._fs_last_liftoff_x_R)
 
-    # --- reward (nonnegative) ---
+    # --- reward ---
     reward = torch.zeros(N, dtype=torch.float32, device=device)
 
-    # REST: both feet near pelvis X=0
+    # REST: encourage both feet near pelvis X=0
     if near_zero.any():
         inv2_s = 1.0 / (2.0 * (stand_sigma**2) + 1e-12)
         stand_score = torch.exp(-(xL**2 + xR**2) * inv2_s)
         reward += stand_bonus * (near_zero & both_down).float() * stand_score
 
-    # MOVING: add positive reward only on correct-sign touchdowns
+    # MOVING: score only on touchdown events
     if moving.any():
+
         def add_td(td_mask, x_td_all, x_lo_last_all, dir_all):
             if not td_mask.any():
                 return
@@ -1011,15 +1013,18 @@ def foot_symmetry_step_reward_cmddir(
             x_lo = x_lo_last_all[td_mask]
             dsgn = dir_all[td_mask]
 
-            # sign checks
+            # expected signs
             td_ok = torch.where(dsgn > 0, x_td >  sign_margin, x_td < -sign_margin)
             lo_ok = torch.where(dsgn > 0, x_lo < -sign_margin, x_lo >  sign_margin)
             ok = td_ok & lo_ok
 
-            # positive only if signs are correct
-            core = torch.exp(-(x_td + dsgn * x_lo).abs() / (sym_lambda + 1e-12))
-            out = torch.zeros_like(x_td)
-            out[ok] = core[ok]
+            core = torch.exp(-(x_td + dsgn * x_lo).abs() / (sym_lambda + 1e-12))  # (0,1]
+
+            out = torch.empty_like(core)
+            # correct sign → +core
+            out[ ok]  =  core[ ok]
+            # wrong sign → -scale * core
+            out[~ok]  = -float(wrong_sign_penalty_scale) * core[~ok]
 
             reward[td_mask] += out
 
@@ -1030,6 +1035,4 @@ def foot_symmetry_step_reward_cmddir(
     env._fs_prev_Lc = Lc
     env._fs_prev_Rc = Rc
 
-    # guaranteed nonnegative
-    reward.clamp(min=0.0)
     return reward

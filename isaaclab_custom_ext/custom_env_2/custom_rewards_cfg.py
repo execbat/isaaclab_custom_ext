@@ -215,6 +215,9 @@ class G1Rewards(RewardsCfg):
             # --- touchdown kernel (direction-aware, nonnegative) ---
             "sym_lambda": 0.06,       # m: exp(-|x_td + dir*x_lo| / sym_lambda)
             "sign_margin": 0.0,       # m: tolerance around 0 for sign checks
+            
+            # --- penalty scale when sign is wrong ---
+            "wrong_sign_penalty_scale":  0.10,  # multiplies core and flips sign: reward -> -scale*reward
 
             # --- standing preference (nonnegative) ---
             "stand_sigma": 0.08,      # m
