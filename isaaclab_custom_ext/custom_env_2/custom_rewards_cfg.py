@@ -274,7 +274,7 @@ class G1Rewards(RewardsCfg):
     '''
     step_width_penalty = RewTerm(
         func=step_width_penalty,
-        weight=-10.0,  
+        weight=-100.0,  
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces",
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
