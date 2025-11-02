@@ -217,7 +217,7 @@ class G1Rewards(RewardsCfg):
             "sign_margin": 0.0,       # m: tolerance around 0 for sign checks
             
             # --- penalty scale when sign is wrong ---
-            "wrong_sign_penalty_scale":  0.10,  # multiplies core and flips sign: reward -> -scale*reward
+            "wrong_sign_penalty_scale":  0.0, #0.10,  # multiplies core and flips sign: reward -> -scale*reward
 
             # --- standing preference (nonnegative) ---
             "stand_sigma": 0.08,      # m
