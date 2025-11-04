@@ -74,30 +74,30 @@ class compressed_image_features(mdp.image_features):
 def regex_lidar_distance_channels_all(
     env,
     sensor_cfg,                    # SceneEntityCfg
-    normalize: bool = False,       # нормировка по max_distance -> [0,1]
-    clip_to_unit: bool = False,    # клипнуть [0,1] после нормировки
-    fill_no_hit: float | None = None,  # чем заполнить отсутствие пересечения (None -> max_distance)
-    flatten: bool = True,          # вернуть (N, C*A) вместо (N, C, A)
+    normalize: bool = False,       # normalization by max_distance -> [0,1]
+    clip_to_unit: bool = False,    # clip [0,1] after normalization
+    fill_no_hit: float | None = None,  # how to fill the missing intersection (None -> max_distance)
+    flatten: bool = True,          # return (N, C*A) instead of (N, C, A)
 ) -> torch.Tensor:
     """
-    Возвращает ВСЕ расстояния лучей лидара без редукции по азимуту:
-      выход: (N, C, A) или (N, C*A) если flatten=True.
+    Returns ALL lidar ray distances without azimuth reduction:
+    output: (N, C, A) or (N, C*A) if flatten=True.
 
-    Делает:
-      • Восстановление стартов лучей в world с учётом ray_alignment + offset + drift (как в RayCaster).
-      • Расстояния считаются от НАЧАЛА ЛУЧА до точки хита (а не от позиции сенсора) — как должно быть.
-      • Маскирует NaN/Inf/отрицательные расстояния.
-      • (Опц.) нормировка по sensor.cfg.max_distance (+ опц. clip в [0,1]).
+    Does:
+    • Restores ray origins in the world, taking into account ray_alignment + offset + drift (as in RayCaster).
+    • Distances are calculated from the RAY START to the hit point (not from the sensor position) — as expected.
+    • Masks NaN/Inf/negative distances.
+    • (Optional) normalization by sensor.cfg.max_distance (+ optional clip in [0,1]).
     """
-    # --- 1) достаём сенсор и данные ---
-    sensor = env.scene.sensors[sensor_cfg.name]   # RegexRayCaster (или обычный RayCaster)
+    # --- 1) we get the sensor and data ---
+    sensor = env.scene.sensors[sensor_cfg.name]   # RegexRayCaster (or a regular RayCaster)
     hits_w  = sensor.data.ray_hits_w              # (N, R, 3)
     pos_w   = sensor.data.pos_w                   # (N, 3)
     quat_w  = sensor.data.quat_w                  # (N, 4)
     max_d   = float(sensor.cfg.max_distance)
     N       = hits_w.shape[0]
 
-    # --- 2) robust: приводим ray_starts к форме (N, R, 3) ---
+    # --- 2) robust: convert ray_starts to the form (N, R, 3) ---
     rs = sensor.ray_starts.to(dtype=hits_w.dtype, device=hits_w.device)
     R  = rs.shape[-2]
     rs = rs.reshape(-1, R, 3)            # (B, R, 3)
@@ -108,7 +108,7 @@ def regex_lidar_distance_channels_all(
         rs = rs.repeat(reps, 1, 1)[:N, :, :]
     ray_starts_local = rs                 # (N, R, 3)
 
-    # --- 3) мировые старты с учётом ray_alignment + дрейфов (как в RayCaster) ---
+    # --- 3) world starts taking into account ray_alignment + drifts (as in RayCaster) ---
     align = getattr(sensor.cfg, "ray_alignment", "base")
     if align == "world":
         ray_starts_w = ray_starts_local.clone()
@@ -134,30 +134,30 @@ def regex_lidar_distance_channels_all(
     else:
         raise RuntimeError(f"[regex_lidar_distance_channels_all] Unsupported ray_alignment: {align}")
 
-    # --- 4) расстояния (N, R) от старта луча до хита ---
+    # --- 4) distances (N, R) from the start of the beam to the hit ---
     dists = torch.linalg.norm(hits_w - ray_starts_w, dim=-1)
 
-    # защита от NaN/Inf/отрицательных + заполнение «нет попадания»
+    # protection from NaN/Inf/negative + "no hit" padding
     fill = max_d if fill_no_hit is None else float(fill_no_hit)
     dists = torch.nan_to_num(dists, nan=fill, posinf=fill, neginf=fill)
     dists = torch.clamp(dists, min=0.0)
 
-    # --- 5) раскладка в (N, C, A) без редукции по азимуту ---
+    # --- 5) layout in (N, C, A) without azimuth reduction ---
     C = int(sensor.cfg.pattern_cfg.channels)
     assert R % C == 0, f"Rays ({R}) must be divisible by channels ({C})."
     A = R // C
     dists = dists.view(N, C, A)  # (N, C, A)
 
-    # --- 6) нормировка/клип (опционально) ---
+    # --- 6) normalization/clip (optional) ---
     if normalize:
         scale = max(max_d, 1e-6)
         dists = dists / scale
         if clip_to_unit:
             dists = torch.clamp(dists, 0.0, 1.0)
 
-    # --- 7) форма для ObsManager ---
+    # --- 7) form for ObsManager ---
     if flatten:
         dists = dists.reshape(N, C * A)  # (N, C*A)
     
-    print(f"Raycaster LIDAR obs {dists}")
+    #print(f"Raycaster LIDAR obs {dists}")
     return dists.to(torch.float32)

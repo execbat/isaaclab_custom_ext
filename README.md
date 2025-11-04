@@ -190,7 +190,7 @@ isaaclab_custom_ext.scripts.run_play_with_ext \
 
 
 
-### Training — **Version 3 (with sensor and RTX LiDAR) REWARDS EVENTS TERMINATIONS**
+### Training — **Version 3 (with commented sensor and RayCaster based LiDAR) REWARDS EVENTS TERMINATIONS**
 ```bash
 ./isaaclab.sh -p -m\
 isaaclab_custom_ext.scripts.run_train_with_ext \
@@ -200,7 +200,7 @@ isaaclab_custom_ext.scripts.run_train_with_ext \
 --headless
 ```
 
-### Play/Testing — **Version 3 (with sensors and RTX LiDAR)**
+### Play/Testing — **Version 3 (with commented sensor and RayCaster based LiDAR)**
 ```bash
 ./isaaclab.sh -p -m\
 isaaclab_custom_ext.scripts.run_play_with_ext \

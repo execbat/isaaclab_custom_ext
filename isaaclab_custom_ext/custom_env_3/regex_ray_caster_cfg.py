@@ -16,49 +16,47 @@ from .regex_ray_caster import RegexRayCaster
 class RegexRayCasterCfg(SensorBaseCfg):
     """Configuration for the regex-enabled ray-cast sensor.
 
-    Поведение и поля полностью совместимы с RayCasterCfg,
-    но :attr:`class_type` указывает на RegexRayCaster.
+    The behavior and fields are fully compatible with RayCasterCfg,
+    but :attr:`class_type` points to RegexRayCaster.
     """
 
     @configclass
     class OffsetCfg:
-        """Смещение кадра сенсора относительно родителя."""
+        """The sensor frame offset relative to the parent."""
         pos: tuple[float, float, float] = (0.0, 0.0, 0.0)
         rot: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
 
-    # самое важное отличие:
     class_type: type = RegexRayCaster
 
     mesh_prim_paths: list[str] = MISSING
-    """Список путей/паттернов мешей для рейкаста.
-    Пример: ["{ENV_REGEX_NS}/obst_*", "/World/ground"].
-    Поддерживаются плейсхолдер {ENV_REGEX_NS} и glob '*' (в именах/сегментах).
+    """List of mesh paths/patterns for raycast.
+    Example: ["{ENV_REGEX_NS}/obst_*", "/World/ground"].
+    The {ENV_REGEX_NS} placeholder and glob '*' (in names/segments) are supported.
     """
 
     offset: OffsetCfg = OffsetCfg()
 
     attach_yaw_only: bool | None = None
-    """DEPRECATED: используйте :attr:`ray_alignment`."""
+    """DEPRECATED: Use :attr:`ray_alignment`."""
 
     ray_alignment: Literal["base", "yaw", "world"] = "base"
-    """Кадр проекции лучей: base|yaw|world."""
+    """Ray projection frame: base|yaw|world."""
 
     pattern_cfg: PatternBaseCfg = MISSING
-    """Паттерн, задающий локальные старты и направления лучей."""
+    """A pattern that defines local starts and directions of rays."""
 
     max_distance: float = 1e6
-    """Макс. дистанция рейкаста, м."""
+    """Max. raycast distance, m."""
 
     drift_range: tuple[float, float] = (0.0, 0.0)
-    """Диапазон дрейфа позиции сенсора в мировом кадре (xyz), м."""
+    """Sensor position drift range in the world frame (xyz), m."""
 
     ray_cast_drift_range: dict[str, tuple[float, float]] = {
         "x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0)
     }
-    """Диапазон дрейфа результата проекции в локальном кадре (xyz), м."""
+    """The drift range of the projection result in the local frame (xyz), m."""
 
     visualizer_cfg: VisualizationMarkersCfg = RAY_CASTER_MARKER_CFG.replace(
         prim_path="/Visuals/RayCaster"
     )
-    """Конфиг визуализатора (исп-ся при debug_vis=True)."""
-
+    """Visualizer config (used when debug_vis=True)."""

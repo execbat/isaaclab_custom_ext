@@ -3,7 +3,7 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaaclab_custom_ext.custom_env_3.events import respawn_target, respawn_reached_targets, spawn_obstacles_at_reset
+from isaaclab_custom_ext.custom_env_3.events import respawn_target, respawn_reached_targets, randomize_obstacles_physx_and_usd
 
 
 
@@ -86,13 +86,21 @@ class EventCfg:
     spawn_target_on_reset = EventTerm(
         func=respawn_target, 
         mode="reset",
-        params={"r_min": 2.0, "r_max": 8.0, "z": 0.05},
+        params={"r_min": 2.0, "r_max": 10.0, "z": 0.05},
     )
-    
+
     spawn_obstacles_on_reset = EventTerm(
-        func=spawn_obstacles_at_reset,
+        func=randomize_obstacles_physx_and_usd,
         mode="reset",
-        params={"num_obstacles": (40, 40), "r_max": 10.0, "keepout_robot": 0.8, "keepout_goal": 0.8},
+        params={
+            "num_obstacles":  (30, 30),
+            "r_max": 9.0,
+            "keepout_robot": 1.5,
+            "keepout_goal": 1.5,
+            "min_obstacle_gap": 1.0,
+            "obstacle_z": 0.4,
+            "sensor_name": "lidar_top",
+          },
     )
     
 
@@ -111,4 +119,3 @@ class EventCfg:
         params={"reach_radius": 0.6, "r_min": 4.0, "r_max": 20.0, "z": 0.05},
     )        
     
-

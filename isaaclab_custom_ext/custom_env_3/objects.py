@@ -1,4 +1,4 @@
-from isaaclab.sim.spawners.meshes.meshes_cfg import MeshCylinderCfg	
+from isaaclab.sim.spawners.meshes.meshes_cfg import MeshCylinderCfg, MeshCuboidCfg	
 from isaaclab.assets import RigidObjectCfg
 from isaaclab.sim import (
     CylinderCfg,
@@ -24,19 +24,6 @@ TARGET_MARKER = RigidObjectCfg(
 
 
 
-# === cylynder obstacle ===
-#OBSTACLE_CYL = RigidObjectCfg(
-#    prim_path="/World/ground/{ENV_REGEX_NS}/obstacles/obst_00",  #"{ENV_REGEX_NS}/Obstacles/obst_00",   
-#    spawn=CylinderCfg(
-#        radius=0.40, height=1.2, #0.80,
-#        rigid_props=RigidBodyPropertiesCfg(kinematic_enabled=False, disable_gravity=False),
-#        mass_props=MassPropertiesCfg(mass=1000.0),
-#        collision_props=CollisionPropertiesCfg(collision_enabled=True),  
-#        visual_material=PreviewSurfaceCfg(diffuse_color=(0.8, 0.8, 0.8), roughness=0.6),
-#    ),
-#    init_state=RigidObjectCfg.InitialStateCfg(pos=(1000.0, 1000.0, 1000.0)),
-#)
-
 OBSTACLE_CYL = RigidObjectCfg(
     prim_path="{ENV_REGEX_NS}/obst",
     spawn=MeshCylinderCfg(
@@ -48,5 +35,5 @@ OBSTACLE_CYL = RigidObjectCfg(
         collision_props=CollisionPropertiesCfg(collision_enabled=True),
         visual_material=PreviewSurfaceCfg(diffuse_color=(0.8, 0.8, 0.8), roughness=0.6),
     ),
-    init_state=RigidObjectCfg.InitialStateCfg(pos=(5.0, 0.0, 0.0)),
+    init_state=RigidObjectCfg.InitialStateCfg(pos=(2.0, 0.0, 0.0)),
 )

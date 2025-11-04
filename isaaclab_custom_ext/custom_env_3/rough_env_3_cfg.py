@@ -44,7 +44,7 @@ import omni
 #from .regex_ray_caster import RegexRayCaster
 
 
-MAX_OBS = 40
+MAX_OBS = 30
         
 @configclass
 class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
@@ -102,6 +102,7 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # Rewards
         # self.rewards.lin_vel_z_l2.weight = 0.0
         self.rewards.undesired_contacts = None
+        self.rewards.feet_air_time = None
         # self.rewards.flat_orientation_l2.weight = -1.0
         # self.rewards.action_rate_l2.weight = -0.005
         # self.rewards.dof_acc_l2.weight = -1.25e-7
@@ -114,8 +115,8 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # )	
 
         # Commands
-        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 2.0)
-        self.commands.base_velocity.ranges.lin_vel_y = (-0.0, 0.0)
+        self.commands.base_velocity.ranges.lin_vel_x = (-1.0, 1.0)
+        self.commands.base_velocity.ranges.lin_vel_y = (-1.0, 1.0)
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
 
         # terminations
@@ -130,6 +131,7 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
         #imu_mount   = "{ENV_REGEX_NS}/Robot/torso_link/imu_in_torso"
 
         # 1 === FRONT RGB-D CAMERA  ===
+        '''
         cam_spawn = sim_utils.PinholeCameraCfg(  # USD Camera spawner
             focal_length=0.88,                   
             horizontal_aperture=2.0,              
@@ -147,14 +149,15 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
             update_latest_camera_pose=True,
             depth_clipping_behavior="max",
         )
+        '''
 
 
         # === 360° LiDAR via RayCaster  ===
         lidar_pattern = LidarPatternCfg(
-            channels=8 ,                           # number of vertical rays
-            vertical_fov_range=(-90.0, 90.0),      # degrees
+            channels=1 ,                           # number of vertical rays
+            vertical_fov_range=(0.0, 0.0),         # degrees
             horizontal_fov_range=(-180, 180.0),     
-            horizontal_res=45.0,                    # grad/step (0.2° -> 1800 datapoints for 360°) 45.0° -> 8 datapoints for 360°
+            horizontal_res=2.0,                    # grad/step (0.2° -> 1800 datapoints for 360°) 45.0° -> 8 datapoints for 360°
         )
         self.scene.lidar_top = RegexRayCasterCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link",
@@ -164,18 +167,19 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
                 rot=(0.999799, 0.0, 0.020070, 0.0),
             ),
             mesh_prim_paths=[
-                "{ENV_REGEX_NS}/obst_.*", 
+                #"{ENV_REGEX_NS}/obst_.*", 
                 "{ENV_REGEX_NS}/obst_.*/geometry/mesh",    
                 #"/World/ground",           
             ],
             ray_alignment="base",
             pattern_cfg=lidar_pattern,
-            debug_vis=True,
-            max_distance=100.0,
+            debug_vis=False,
+            max_distance=10.0,
         )     
   
 
         # === IMU inside of torso ===
+        '''
         self.scene.imu = ImuCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
             update_period= 0.02,                   # every step (sync)
@@ -186,7 +190,8 @@ class G1RoughEnv3Cfg(CustomLocomotionVelocityRoughEnvCfg):
             ),
             debug_vis=False
             
-        )       
+        )  
+        '''     
 
 
 

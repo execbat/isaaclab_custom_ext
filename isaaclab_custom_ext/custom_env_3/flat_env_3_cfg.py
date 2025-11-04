@@ -25,6 +25,7 @@ class G1FlatEnv3Cfg(G1RoughEnv3Cfg):
         self.observations.policy.height_scan = None
         # no terrain curriculum
         self.curriculum.terrain_levels = None
+        '''
 
         # Rewards
         self.rewards.track_ang_vel_z_exp.weight = 1.0
@@ -41,6 +42,7 @@ class G1FlatEnv3Cfg(G1RoughEnv3Cfg):
         self.commands.base_velocity.ranges.lin_vel_x = (0.0, 1.0)
         self.commands.base_velocity.ranges.lin_vel_y = (-0.5, 0.5)
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
+        '''
 
 
 
@@ -62,6 +64,4 @@ class G1FlatEnv3Cfg_PLAY(G1FlatEnv3Cfg):
         #self.scene.lazy_sensor_update = False
         #self.observations.policy.rtx_lidar_points.params["debug"] = True
         self.scene.lidar_top.debug_vis = True
-        self.scene.imu.debug_vis = True
-
-
+        #self.scene.imu.debug_vis = True

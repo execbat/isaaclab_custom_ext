@@ -83,7 +83,7 @@ class ObservationsCfg:
                 "normalize": True,
                 "clip_to_unit": False,
                 #"data_type": "distance",   # "distance" | "height" | "points"                
-                "fill_no_hit": 2.0,         # if detected nothing
+                "fill_no_hit": 0.0,         # if detected nothing
                 "flatten": True,           # shape (N, C*A)
             },
         )
@@ -96,9 +96,11 @@ class ObservationsCfg:
         
         
         # imu data
+        '''
         imu_projected_gravity = ObsTerm(func=mdp.imu_projected_gravity)
         imu_ang_vel = ObsTerm(func=mdp.imu_ang_vel)
         imu_lin_acc = ObsTerm(func=mdp.imu_lin_acc)
+        '''
         
 
         def __post_init__(self):
@@ -107,5 +109,3 @@ class ObservationsCfg:
 
     # observation groups
     policy: PolicyCfg = PolicyCfg()
-
-
