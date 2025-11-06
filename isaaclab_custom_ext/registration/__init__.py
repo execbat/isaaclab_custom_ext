@@ -204,3 +204,52 @@ gym.register(
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_flat_ppo_cfg.yaml",
     },
 )
+        
+# LESSON Terrains - Curriculums - Version 4
+
+gym.register(
+    id="Ext-Isaac-Velocity-Rough-G1-v4",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.custom_env_4.rough_env_4_cfg:G1RoughEnv4Cfg",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
+    },
+)
+
+
+gym.register(
+    id="Ext-Isaac-Velocity-Rough-G1-Play-v4",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.custom_env_4.rough_env_4_cfg:G1RoughEnv4Cfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
+    },
+)
+
+
+gym.register(
+    id="Ext-Isaac-Velocity-Flat-G1-v4",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.custom_env_4.flat_env_4_cfg:G1FlatEnv4Cfg",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1FlatPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_flat_ppo_cfg.yaml",
+    },
+)
+
+
+gym.register(
+    id="Ext-Isaac-Velocity-Flat-G1-Play-v4",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.custom_env_4.flat_env_4_cfg:G1FlatEnv4Cfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1FlatPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_flat_ppo_cfg.yaml",
+    },       
+)
