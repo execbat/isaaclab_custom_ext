@@ -63,5 +63,6 @@ class G1FlatEnv4Cfg_PLAY(G1FlatEnv4Cfg):
         # switch ON debug vis
         #self.scene.lazy_sensor_update = False
         #self.observations.policy.rtx_lidar_points.params["debug"] = True
-        self.scene.lidar_top.debug_vis = True
+        #self.scene.lidar_top.debug_vis = True
         #self.scene.imu.debug_vis = True
+        self.scene.height_scanner.debug_vis=True

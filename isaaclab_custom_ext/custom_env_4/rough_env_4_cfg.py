@@ -25,11 +25,11 @@ from isaaclab_custom_ext.custom_env_4.objects import TARGET_MARKER, OBSTACLE_CYL
 
 # import of sensors
 import isaaclab.sim as sim_utils
-from isaaclab.sensors import CameraCfg
+from isaaclab.sensors import CameraCfg, patterns
 from isaaclab.sensors.ray_caster.patterns import LidarPatternCfg
 
-#from isaaclab.sensors.ray_caster import RayCasterCfg
-from .regex_ray_caster_cfg import RegexRayCasterCfg
+from isaaclab.sensors.ray_caster import RayCasterCfg
+#from .regex_ray_caster_cfg import RegexRayCasterCfg
 
 from isaaclab.sensors.imu import ImuCfg
 
@@ -56,6 +56,7 @@ class G1RoughEnv4Cfg(CustomLocomotionVelocityRoughEnvCfg):
         super().__post_init__()
         # Scene
         
+        '''
         # columns
         objs = {}
         for i in range(MAX_OBS):
@@ -65,6 +66,7 @@ class G1RoughEnv4Cfg(CustomLocomotionVelocityRoughEnvCfg):
                 spawn=OBSTACLE_CYL.spawn.replace(copy_from_source=False),
             )
         self.scene.obstacles = RigidObjectCollectionCfg(rigid_objects=objs)     
+        '''
         
         self.scene.robot = MATH_G1_23DF_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/torso_link"
@@ -87,7 +89,7 @@ class G1RoughEnv4Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # self.events.reset_robot_joints.params["position_range"] = (1.0, 1.0)
         self.events.base_external_force_torque.params["asset_cfg"].body_names = ["torso_link"]
         self.events.reset_base.params = {
-            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
+            "pose_range": {"x": (-0.1, 0.1), "y": (-0.1, 0.1), "yaw": (-3.14, 3.14)},
             "velocity_range": {
                 "x": (0.0, 0.0),
                 "y": (0.0, 0.0),
@@ -125,6 +127,18 @@ class G1RoughEnv4Cfg(CustomLocomotionVelocityRoughEnvCfg):
         
 
         # SENSORS
+        self.scene.height_scanner = RayCasterCfg(
+            prim_path="{ENV_REGEX_NS}/Robot/torso_link",
+            update_period=0.02,
+            offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+            ray_alignment="yaw",
+            pattern_cfg=patterns.GridPatternCfg(resolution=0.3, size=[3.0, 3.0]),
+            debug_vis=False,
+            mesh_prim_paths=["/World/ground"],
+        )
+        
+        
+        
         # ====== paths to mount places ======
         #cam_mount   = "{ENV_REGEX_NS}/Robot/torso_link/d435_link"
         #lidar_mount = "{ENV_REGEX_NS}/Robot/torso_link/mid360_link"
@@ -149,9 +163,9 @@ class G1RoughEnv4Cfg(CustomLocomotionVelocityRoughEnvCfg):
             update_latest_camera_pose=True,
             depth_clipping_behavior="max",
         )
-        '''
+        
 
-
+        
         # === 360° LiDAR via RayCaster  ===
         lidar_pattern = LidarPatternCfg(
             channels=1 ,                           # number of vertical rays
@@ -176,10 +190,10 @@ class G1RoughEnv4Cfg(CustomLocomotionVelocityRoughEnvCfg):
             debug_vis=False,
             max_distance=10.0,
         )     
-  
+        
 
         # === IMU inside of torso ===
-        '''
+        
         self.scene.imu = ImuCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link",   # SHOULD BE A RIGID BODY!
             update_period= 0.02,                   # every step (sync)
@@ -222,7 +236,7 @@ class G1RoughEnv4Cfg_PLAY(G1RoughEnv4Cfg):
         # self.events.reset_robot_joints.params["position_range"] = (1.0, 1.0)
         self.events.base_external_force_torque.params["asset_cfg"].body_names = ["torso_link"]
         self.events.reset_base.params = {
-            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
+            "pose_range": {"x": (-0.1, 0.1), "y": (-0.1, 0.1), "yaw": (-3.14, 3.14)},
             "velocity_range": {
                 "x": (0.0, 0.0),
                 "y": (0.0, 0.0),
@@ -238,14 +252,15 @@ class G1RoughEnv4Cfg_PLAY(G1RoughEnv4Cfg):
         self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis"]	
 
         # Commands
-        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 2.0)
-        self.commands.base_velocity.ranges.lin_vel_y = (-0.0, 0.0)
+        self.commands.base_velocity.ranges.lin_vel_x = (-1.0, 1.0)
+        self.commands.base_velocity.ranges.lin_vel_y = (-1.0, 1.0)
         self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
         
         # switch ON debug vis
         #self.observations.policy.rtx_lidar_points.params["debug"] = True
-        self.scene.lidar_top.debug_vis = True
-        self.scene.imu.debug_vis = True
+        # self.scene.lidar_top.debug_vis = True
+        #self.scene.imu.debug_vis = True
+        self.scene.height_scanner.debug_vis=True
 
         
     def get_metrics(self) -> dict:

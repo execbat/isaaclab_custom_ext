@@ -213,6 +213,28 @@ isaaclab_custom_ext.scripts.run_play_with_ext \
 
 
 
+### Training — **Version 4 (with RayCaster based HeightScanner) TERRAINS AND CURRICULUMS**
+```bash
+./isaaclab.sh -p -m\
+isaaclab_custom_ext.scripts.run_train_with_ext \
+--task Ext-Isaac-Velocity-Rough-G1-v4 \
+--num_envs 1 \
+--enable_cameras \
+--headless
+```
+
+### Play/Testing — **Version 4 (with RayCaster based HeightScanner)**
+```bash
+./isaaclab.sh -p -m\
+isaaclab_custom_ext.scripts.run_play_with_ext \
+--task Ext-Isaac-Velocity-Rough-G1-Play-v4 \
+--num_envs 1 \
+--enable_cameras \
+--checkpoint ./logs/rsl_rl/custom_unitree_g1_rough/<experiment folder name (contains date-time)>/<model_name>.pt \
+--rendering_mode performance
+```
+
+
 > **Tip:** Increase `--num_envs` when your GPU/CPU budget allows. Sensors, especially cameras, consume VRAM; tune resolutions and update periods accordingly.
 
 ---

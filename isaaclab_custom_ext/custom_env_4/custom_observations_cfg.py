@@ -74,7 +74,7 @@ class ObservationsCfg:
             func=depth_avgpool,
             params={"sensor_cfg": SceneEntityCfg("front_camera"), "pool": 4},
         )
-        '''
+        
         # lidar observations RayCaster
         lidar_scan_full = ObsTerm(
             func=regex_lidar_distance_channels_all,
@@ -88,15 +88,10 @@ class ObservationsCfg:
             },
         )
         
-#       # RTX LIDAR
-#        rtx_lidar_points = ObsTerm(
-#            func=obs_rtx_lidar_points,
-#            params={"debug" : False},            
-#        )
-        
+       
         
         # imu data
-        '''
+        
         imu_projected_gravity = ObsTerm(func=mdp.imu_projected_gravity)
         imu_ang_vel = ObsTerm(func=mdp.imu_ang_vel)
         imu_lin_acc = ObsTerm(func=mdp.imu_lin_acc)

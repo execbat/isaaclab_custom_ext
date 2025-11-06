@@ -57,7 +57,7 @@ class EventCfg:
             "torque_range": (-0.0, 0.0),
         },
     )
-
+    
     reset_base = EventTerm(
         func=mdp.reset_root_state_uniform,
         mode="reset",
@@ -73,7 +73,7 @@ class EventCfg:
             },
         },
     )
-
+    
     reset_robot_joints = EventTerm(
         func=mdp.reset_joints_by_scale,
         mode="reset",
@@ -88,7 +88,7 @@ class EventCfg:
         mode="reset",
         params={"r_min": 2.0, "r_max": 10.0, "z": 0.05},
     )
-
+    '''
     spawn_obstacles_on_reset = EventTerm(
         func=randomize_obstacles_physx_and_usd,
         mode="reset",
@@ -102,7 +102,7 @@ class EventCfg:
             "sensor_name": "lidar_top",
           },
     )
-    
+    '''
 
     # interval
     push_robot = EventTerm(

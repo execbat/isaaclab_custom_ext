@@ -5,6 +5,7 @@ from .custom_commands_cfg import CommandsCfg, TestCommandsCfg
 from .custom_event_cfg import EventCfg
 from .custom_scene_cfg import SceneCfg
 from .custom_terminations_cfg import TerminationsCfg
+from .custom_curriculum_cfg import CurriculumCfg
 
 class CustomLocomotionVelocityRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
     scene : SceneCfg = SceneCfg(num_envs=4096, env_spacing=2.5)
@@ -13,6 +14,7 @@ class CustomLocomotionVelocityRoughEnvCfg(LocomotionVelocityRoughEnvCfg):
     commands: CommandsCfg = CommandsCfg()
     events: EventCfg = EventCfg()
     terminations : TerminationsCfg  = TerminationsCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
 
 
 
