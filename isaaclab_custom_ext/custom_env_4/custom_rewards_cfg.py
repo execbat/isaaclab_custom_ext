@@ -196,7 +196,7 @@ class G1Rewards(RewardsCfg):
             "idle_double_support_bonus_val": 1.0,  # bonus for double support at rest
         },
     )   
-
+    '''
     foot_symmetry_step_reward = RewTerm(
         func=foot_symmetry_step_reward_cmddir,
         weight=6.0,
@@ -224,11 +224,11 @@ class G1Rewards(RewardsCfg):
             "stand_bonus": 1.0,       # scale
         },
     )   
-
+    
 
 
     
-    '''        
+            
     step_phase_reward = RewTerm(
         func=step_phase_reward,
         weight=4.0,   
@@ -274,7 +274,7 @@ class G1Rewards(RewardsCfg):
     '''
     step_width_penalty = RewTerm(
         func=step_width_penalty,
-        weight=-100.0,  
+        weight=-1.0,  
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces",
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
@@ -290,7 +290,7 @@ class G1Rewards(RewardsCfg):
     
     target_distance_exp = RewTerm(
         func=target_distance_exp_reward,
-        weight=1.0,
+        weight=20.0,
         params={
             "alpha": 0.5,
             "use_xy": True,

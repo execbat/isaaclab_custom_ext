@@ -119,6 +119,12 @@ isaaclab_custom_ext/
 
 ---
 
+## Launch TensorBoard
+```
+tensorboard --logdir=logs
+```
+
+
 ## 🚀 How to run
 
 > Replace paths as needed for your workspace. From `IsaacLab/` root:

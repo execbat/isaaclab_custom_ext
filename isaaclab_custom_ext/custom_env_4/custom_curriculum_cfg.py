@@ -7,7 +7,7 @@ from .param_scheduler import lerp_scalar, lerp_tuple
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
-    
+    '''
     # CONDITION BASED CURRICULUM CHANGER
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
     
@@ -95,4 +95,5 @@ class CurriculumCfg:
                             "log_name": "cmd_ang_yaw_range"
                             },
         },
-    )    
+    ) 
+    '''   
