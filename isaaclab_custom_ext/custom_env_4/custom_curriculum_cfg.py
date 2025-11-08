@@ -7,11 +7,11 @@ from .param_scheduler import lerp_scalar, lerp_tuple
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
-    '''
+    
     # CONDITION BASED CURRICULUM CHANGER
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
     
-    
+    '''
     # WEIGHT SCALAR RAPID CHANGERS  
     ar_50k = CurrTerm(func=mdp.modify_reward_weight,
         params={"term_name":"action_rate_l2","weight":-0.02,"num_steps":50_000})

@@ -280,7 +280,7 @@ class G1Rewards(RewardsCfg):
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
             "asset_cfg":  SceneEntityCfg("robot",
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
-            "nominal_width": 0.25,
+            "nominal_width": 0.7,
             #"beta": 20.0,
             "contact_force_threshold": 5.0,
             "use_history": True,

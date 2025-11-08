@@ -54,7 +54,7 @@ class TargetChaseVelocityCommandCfg(CommandTermCfg):
     current_vel_visualizer_cfg.markers["arrow"].scale = (0.5, 0.5, 0.5)
 
     # when to trigger _resample_command (we only update standing flags)
-    resampling_time_range: tuple[float, float] = (1.0, 1.0) 
+    resampling_time_range: tuple[float, float] = (0.0, 0.0) 
  
  
  
