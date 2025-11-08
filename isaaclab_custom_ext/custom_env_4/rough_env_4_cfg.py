@@ -35,6 +35,7 @@ from isaaclab.sensors.imu import ImuCfg
 
 from isaaclab.assets import AssetBaseCfg
 from isaaclab.sim.spawners.from_files.from_files_cfg import  UsdFileCfg
+from .custom_commands_cfg import TestCommandsCfg
 
 
 import numpy as np
@@ -227,6 +228,9 @@ class G1RoughEnv4Cfg_PLAY(G1RoughEnv4Cfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
+        
+        # SWITCH TO NEW COMMANDS
+        self.commands = TestCommandsCfg()
         
         self.episode_length_s = 15.0
 
