@@ -12,7 +12,7 @@ class G1Rewards(RewardsCfg):
     """Reward terms for the MDP."""
 
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=20.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_lin_vel_xy_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     track_ang_vel_z_exp = RewTerm(
         func=mdp.track_ang_vel_z_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
@@ -274,13 +274,13 @@ class G1Rewards(RewardsCfg):
     '''
     step_width_penalty = RewTerm(
         func=step_width_penalty,
-        weight=-1.0,  
+        weight=-0.1,  
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces",
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
             "asset_cfg":  SceneEntityCfg("robot",
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
-            "nominal_width": 0.7,
+            "nominal_width": 0.25,
             #"beta": 20.0,
             "contact_force_threshold": 5.0,
             "use_history": True,
@@ -290,7 +290,7 @@ class G1Rewards(RewardsCfg):
     
     target_distance_exp = RewTerm(
         func=target_distance_exp_reward,
-        weight=20.0,
+        weight=5.0,
         params={
             "alpha": 0.5,
             "use_xy": True,

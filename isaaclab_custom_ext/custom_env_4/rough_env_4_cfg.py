@@ -81,7 +81,7 @@ class G1RoughEnv4Cfg(CustomLocomotionVelocityRoughEnvCfg):
         )  
         
          
-        self.episode_length_s = 40.0
+        self.episode_length_s = 15.0
 
         # Randomization
         self.events.push_robot = None
@@ -132,7 +132,7 @@ class G1RoughEnv4Cfg(CustomLocomotionVelocityRoughEnvCfg):
             update_period=0.02,
             offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
             ray_alignment="yaw",
-            pattern_cfg=patterns.GridPatternCfg(resolution=0.3, size=[3.0, 3.0]),
+            pattern_cfg=patterns.GridPatternCfg(resolution=0.5, size=[2.0, 2.0]),
             debug_vis=False,
             mesh_prim_paths=["/World/ground"],
         )
@@ -228,7 +228,7 @@ class G1RoughEnv4Cfg_PLAY(G1RoughEnv4Cfg):
         # post init of parent
         super().__post_init__()
         
-        self.episode_length_s = 40.0
+        self.episode_length_s = 15.0
 
         # Randomization
         self.events.push_robot = None

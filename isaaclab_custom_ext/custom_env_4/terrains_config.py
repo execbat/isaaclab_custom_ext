@@ -44,7 +44,7 @@ CUSTOM_TERRAINS_CFG = TerrainGeneratorCfg(
         ),
         '''
         "hf_stepping stones": terrain_gen.HfSteppingStonesTerrainCfg(
-            proportion=1.0, stone_height_max=0.0, stone_width_range=(0.4, 0.8), stone_distance_range=(0.06, 0.5) , platform_width=1.0, border_width=0.00
+            proportion=1.0, stone_height_max=0.0, stone_width_range=(0.3, 1.0), stone_distance_range=(0.05, 0.5) , platform_width=2.0, border_width=0.1
         ),
         
         
