@@ -51,9 +51,6 @@ class G1FlatEnv4Cfg_PLAY(G1FlatEnv4Cfg):
     def __post_init__(self) -> None:
         # post init of parent
         super().__post_init__()
-        
-        # SWITCH TO NEW COMMANDS
-        self.commands = TestCommandsCfg()
 
         # make a smaller scene for play
         self.scene.num_envs = 50

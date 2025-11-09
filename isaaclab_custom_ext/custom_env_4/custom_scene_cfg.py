@@ -71,7 +71,7 @@ class SceneCfg(InteractiveSceneCfg):
     )
     
     
-    target: RigidObjectCfg = MISSING
+    #target: RigidObjectCfg = MISSING
     #obstacles: RigidObjectCollectionCfg = MISSING
 
     

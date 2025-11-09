@@ -12,10 +12,10 @@ class G1Rewards(RewardsCfg):
     """Reward terms for the MDP."""
 
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_lin_vel_xy_exp, weight=10.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_exp, weight=2.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_ang_vel_z_exp, weight=0.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
 #    track_vel_exp_product = RewTerm(
 #        func=angvel_flat_l2_product,
@@ -119,7 +119,7 @@ class G1Rewards(RewardsCfg):
     '''
     coalignment_chain = RewTerm( 
         func=leg_pelvis_torso_coalignment_reward,
-        weight=0.5,  # 2
+        weight=2.0,  # 2
         params={
             "asset_cfg": SceneEntityCfg("robot"),
 
@@ -143,7 +143,7 @@ class G1Rewards(RewardsCfg):
     
     body_lin_acc_l2 = RewTerm(func=mdp.body_lin_acc_l2, weight=-2.5e-6)   
     
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-0.6)
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.0)
     
     idle_penalty = RewTerm(
         func = idle_penalty,
@@ -287,7 +287,7 @@ class G1Rewards(RewardsCfg):
             "gate_by_support": True,
         },
     )
-    
+    '''
     target_distance_exp = RewTerm(
         func=target_distance_exp_reward,
         weight=5.0,
@@ -297,4 +297,4 @@ class G1Rewards(RewardsCfg):
             "max_dist": 10.0,
         },
     )    
-     
+    ''' 

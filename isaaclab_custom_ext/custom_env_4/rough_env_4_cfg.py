@@ -118,9 +118,9 @@ class G1RoughEnv4Cfg(CustomLocomotionVelocityRoughEnvCfg):
         # )	
 
         # Commands
-        self.commands.base_velocity.ranges.lin_vel_x = (-1.0, 1.0)
-        self.commands.base_velocity.ranges.lin_vel_y = (-1.0, 1.0)
-        self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
+        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 1.0)
+        self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
+        self.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
 
         # terminations
         # self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis", ".*_hip_.*", ".*_wrist_.*", ".*shoulder_.*", ".*knee_.*", ".*elbow_.*"]
@@ -229,8 +229,6 @@ class G1RoughEnv4Cfg_PLAY(G1RoughEnv4Cfg):
         # post init of parent
         super().__post_init__()
         
-        # SWITCH TO NEW COMMANDS
-        self.commands = TestCommandsCfg()
         
         self.episode_length_s = 15.0
 
@@ -256,9 +254,9 @@ class G1RoughEnv4Cfg_PLAY(G1RoughEnv4Cfg):
         self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis"]	
 
         # Commands
-        self.commands.base_velocity.ranges.lin_vel_x = (-1.0, 1.0)
-        self.commands.base_velocity.ranges.lin_vel_y = (-1.0, 1.0)
-        self.commands.base_velocity.ranges.ang_vel_z = (-1.0, 1.0)
+        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 1.0)
+        self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
+        self.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
         
         # switch ON debug vis
         #self.observations.policy.rtx_lidar_points.params["debug"] = True

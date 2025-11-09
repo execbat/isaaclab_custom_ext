@@ -82,13 +82,13 @@ class EventCfg:
             "velocity_range": (0.0, 0.0),
         },
     )
-
+    '''
     spawn_target_on_reset = EventTerm(
         func=respawn_target, 
         mode="reset",
         params={"r_min": 2.0, "r_max": 10.0, "z": 0.05},
     )
-    '''
+    
     spawn_obstacles_on_reset = EventTerm(
         func=randomize_obstacles_physx_and_usd,
         mode="reset",
@@ -111,11 +111,11 @@ class EventCfg:
         interval_range_s=(10.0, 15.0),
         params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
     )
-    
+    '''
     respawn_when_reached = EventTerm(
         func=respawn_reached_targets,
         mode="interval",
         interval_range_s=(1, 1),
         params={"reach_radius": 0.6, "r_min": 4.0, "r_max": 20.0, "z": 0.05},
     )        
-    
+    '''
