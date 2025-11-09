@@ -22,7 +22,7 @@ import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 import torch
 
 from .rtx_lidar_lazy_hook import obs_rtx_lidar_points
-from .observations import depth_avgpool, compressed_image_features, regex_lidar_distance_channels_all
+from .observations import depth_avgpool, compressed_image_features, regex_lidar_distance_channels_all, height_scan
 
 ##
 # Pre-defined configs
@@ -51,7 +51,7 @@ class ObservationsCfg:
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
         height_scan = ObsTerm(
-            func=mdp.height_scan,
+            func=height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
             noise=Unoise(n_min=-0.1, n_max=0.1),
             clip=(-1.0, 1.0),

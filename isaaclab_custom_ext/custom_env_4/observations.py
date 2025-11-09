@@ -161,3 +161,16 @@ def regex_lidar_distance_channels_all(
     
     #print(f"Raycaster LIDAR obs {dists}")
     return dists.to(torch.float32)
+    
+def height_scan(env, sensor_cfg, offset = 0.5) -> torch.Tensor:
+    """Height scan from the given sensor w.r.t. the sensor's frame.
+
+    The provided offset (Defaults to 0.5) is subtracted from the returned values.
+    """
+    # extract the used quantities (to enable type-hinting)
+    sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
+    # height scan: height = sensor_height - hit_point_z - offset
+    res = sensor.data.pos_w[:, 2].unsqueeze(1) - sensor.data.ray_hits_w[..., 2] - offset
+    res = torch.exp(- res)
+    #print(f"height scan obs: {res}")
+    return res    
