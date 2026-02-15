@@ -62,7 +62,7 @@ class CurriculumCfg:
                             },
         },
     )
-
+    
 
     
     # COMMAND RANGE SMOOTH CHANGERS 
@@ -96,4 +96,4 @@ class CurriculumCfg:
                             },
         },
     ) 
-    '''   
+    '''

@@ -133,7 +133,7 @@ class G1RoughEnv4Cfg(CustomLocomotionVelocityRoughEnvCfg):
             update_period=0.02,
             offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
             ray_alignment="yaw",
-            pattern_cfg=patterns.GridPatternCfg(resolution=0.5, size=[2.0, 2.0]),
+            pattern_cfg=patterns.GridPatternCfg(resolution=0.5, size=[1.0, 1.0]),
             debug_vis=False,
             mesh_prim_paths=["/World/ground"],
         )
@@ -254,7 +254,7 @@ class G1RoughEnv4Cfg_PLAY(G1RoughEnv4Cfg):
         self.terminations.base_contact.params["sensor_cfg"].body_names = ["torso_link", "pelvis"]	
 
         # Commands
-        self.commands.base_velocity.ranges.lin_vel_x = (0.0, 1.0)
+        self.commands.base_velocity.ranges.lin_vel_x = (1.0, 1.0)
         self.commands.base_velocity.ranges.lin_vel_y = (0.0, 0.0)
         self.commands.base_velocity.ranges.ang_vel_z = (0.0, 0.0)
         

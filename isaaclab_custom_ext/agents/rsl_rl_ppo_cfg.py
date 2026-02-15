@@ -18,8 +18,8 @@ class G1RoughPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=0.6,
         noise_std_type="log",
-        actor_hidden_dims=[512, 256, 128],
-        critic_hidden_dims=[512, 256, 128],
+        actor_hidden_dims=[128],  #[512, 256, 128],
+        critic_hidden_dims=[128], #[512, 256, 128],
         activation="elu",
         actor_obs_normalization=True,
         critic_obs_normalization=True,

@@ -12,10 +12,10 @@ class G1Rewards(RewardsCfg):
     """Reward terms for the MDP."""
 
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=10.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_lin_vel_xy_exp, weight=5.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_exp, weight=0.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_ang_vel_z_exp, weight=2.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
 #    track_vel_exp_product = RewTerm(
 #        func=angvel_flat_l2_product,
@@ -169,7 +169,7 @@ class G1Rewards(RewardsCfg):
     
     alt_airtime_term = RewTerm(
         func=alternating_airtime_reward,
-        weight=4.0, # 4.0
+        weight=5.0, # 4.0
         params={
             "command_name": "base_velocity",
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_ankle_roll_link"),
@@ -196,7 +196,7 @@ class G1Rewards(RewardsCfg):
             "idle_double_support_bonus_val": 1.0,  # bonus for double support at rest
         },
     )   
-    '''
+    
     foot_symmetry_step_reward = RewTerm(
         func=foot_symmetry_step_reward_cmddir,
         weight=6.0,
@@ -252,7 +252,7 @@ class G1Rewards(RewardsCfg):
         "std_vel": 0.25,                 # controls sharpness of exp decay
         },
     )  
-    
+    '''
     com_reward = RewTerm(
         func=com_projection_reward,
         weight=1.0,  
@@ -274,7 +274,7 @@ class G1Rewards(RewardsCfg):
     '''
     step_width_penalty = RewTerm(
         func=step_width_penalty,
-        weight=-0.1,  
+        weight=-1.0,  
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces",
                          body_names=["left_ankle_roll_link","right_ankle_roll_link"]),
