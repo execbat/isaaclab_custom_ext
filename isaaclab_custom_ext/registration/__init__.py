@@ -253,3 +253,52 @@ gym.register(
         "skrl_cfg_entry_point": f"{agents.__name__}:skrl_flat_ppo_cfg.yaml",
     },       
 )
+
+# LESSON Full giude - construction of entire environment - Version 5
+
+gym.register(
+    id="Ext-Isaac-Velocity-Rough-G1-v5",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.custom_env_5.rough_env_5_cfg:G1RoughEnv5Cfg",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
+    },
+)
+
+
+gym.register(
+    id="Ext-Isaac-Velocity-Rough-G1-Play-v5",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.custom_env_5.rough_env_5_cfg:G1RoughEnv5Cfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1RoughPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_rough_ppo_cfg.yaml",
+    },
+)
+
+
+gym.register(
+    id="Ext-Isaac-Velocity-Flat-G1-v5",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.custom_env_5.flat_env_5_cfg:G1FlatEnv5Cfg",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1FlatPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_flat_ppo_cfg.yaml",
+    },
+)
+
+
+gym.register(
+    id="Ext-Isaac-Velocity-Flat-G1-Play-v5",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"isaaclab_custom_ext.custom_env_5.flat_env_5_cfg:G1FlatEnv5Cfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"isaaclab_custom_ext.agents.rsl_rl_ppo_cfg:G1FlatPPORunnerCfg",
+        "skrl_cfg_entry_point": f"{agents.__name__}:skrl_flat_ppo_cfg.yaml",
+    },       
+)
