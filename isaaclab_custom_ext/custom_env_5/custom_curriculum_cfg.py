@@ -2,98 +2,79 @@ from isaaclab.utils import configclass
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from .param_scheduler import lerp_scalar, lerp_tuple
-
+from .curriculums import DifficultyScheduler, initial_final_interpolate_fn
+from isaaclab.managers import ManagerTermBase, SceneEntityCfg
 
 @configclass
 class CurriculumCfg:
     """Curriculum terms for the MDP."""
     
-    # CONDITION BASED CURRICULUM CHANGER
-    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
-    
-    '''
-    # WEIGHT SCALAR RAPID CHANGERS  
-    ar_50k = CurrTerm(func=mdp.modify_reward_weight,
-        params={"term_name":"action_rate_l2","weight":-0.02,"num_steps":50_000})
-    tq_50k = CurrTerm(func=mdp.modify_reward_weight,
-        params={"term_name":"dof_torques_l2","weight":-3e-5,"num_steps":50_000})
-    jv_50k = CurrTerm(func=mdp.modify_reward_weight,
-        params={"term_name":"joint_vel_l2","weight":-1e-4,"num_steps":50_000})
-    ja_50k = CurrTerm(func=mdp.modify_reward_weight,
-        params={"term_name":"dof_acc_l2","weight":-1e-6,"num_steps":50_000})    
-        
 
-    ar_100k = CurrTerm(func=mdp.modify_reward_weight,
-        params={"term_name":"action_rate_l2","weight":-0.2,"num_steps":100_000})
-    tq_100k = CurrTerm(func=mdp.modify_reward_weight,
-        params={"term_name":"dof_torques_l2","weight":-3e-4,"num_steps":100_000})
-    jv_100k = CurrTerm(func=mdp.modify_reward_weight,
-        params={"term_name":"joint_vel_l2","weight":-1e-3,"num_steps":100_000})
-    ja_100k = CurrTerm(func=mdp.modify_reward_weight,
-        params={"term_name":"dof_acc_l2","weight":-1e-5,"num_steps":100_000})         
-        
-    
-    # WEIGHT SCALAR SMOOTH CHANGERS    (bad practice to increase the reward weights smoothly) 
-    tr_lin_warmup = CurrTerm(
-        func=mdp.modify_term_cfg,
+    adr = CurrTerm(
+        func=DifficultyScheduler,
         params={
-            "address": "rewards.track_lin_vel_xy_exp.weight", 
-            "modify_fn": lerp_scalar,          
-            "modify_params": {
-                            "start": 0.0, 
-                            "end": 2.0, 
-                            "num_steps": 10_000, 
-                            "start_after": 1_000,
-                            "log_name": "track_lin_reward_weight"
-                            },
-        },
-    )
-    tr_yaw_warmup = CurrTerm(
-        func=mdp.modify_term_cfg,
-        params={
-            "address": "rewards.track_ang_vel_z_exp.weight", 
-            "modify_fn": lerp_scalar,          
-            "modify_params": {
-                            "start": 0.0, 
-                            "end": 0.5, 
-                            "num_steps": 10_000, 
-                            "start_after": 1_000,
-                            "log_name": "track_ang_reward_weight"
-                            },
+            "init_difficulty": 0,
+            "min_difficulty": 0,
+            "max_difficulty": 10,
+            "object_cfg": SceneEntityCfg("target"), 
+
+            "term_name": "target_distance_exp",
+            "promote_threshold": 0.7,
+            "demote_threshold": 0.3,
+            "ema_alpha": 0.05,
+            "warmup_steps": 1000,
         },
     )
     
 
-    
-    # COMMAND RANGE SMOOTH CHANGERS 
-    cmd_lin_x_range = CurrTerm(
+    joint_pos_unoise_min_adr = CurrTerm(
         func=mdp.modify_term_cfg,
         params={
-            "address": "commands.base_velocity.ranges.lin_vel_x",
-            "modify_fn": lerp_tuple,
-            "modify_params": {
-                            "start": (0.0, 0.1), 
-                            "end": (0.0, 1.0), 
-                            "num_steps": 100_000, 
-                            "start_after": 1_000,
-                            "log_name": "cmd_lin_x_range"
-                            },
-            
+            "address": "observations.policy.joint_pos.noise.n_min",
+            "modify_fn": initial_final_interpolate_fn,
+            "modify_params": {"initial_value": 0.0, "final_value": -0.1, "difficulty_term_str": "adr"},
         },
     )
-    
-    cmd_yaw_range_sched = CurrTerm(
+    joint_pos_unoise_max_adr = CurrTerm(
         func=mdp.modify_term_cfg,
         params={
-            "address": "commands.base_velocity.ranges.ang_vel_z",
-            "modify_fn": lerp_tuple,
-            "modify_params": {
-                            "start": (-0.1, 0.1),
-                            "end":   (-1.0, 1.0),
-                            "num_steps": 100_000,
-                            "start_after": 1_000,
-                            "log_name": "cmd_ang_yaw_range"
-                            },
+            "address": "observations.policy.joint_pos.noise.n_max",
+            "modify_fn": initial_final_interpolate_fn,
+            "modify_params": {"initial_value": 0.0, "final_value": 0.1, "difficulty_term_str": "adr"},
         },
-    ) 
-    '''
+    )    
+    
+    joint_vel_unoise_min_adr = CurrTerm(
+        func=mdp.modify_term_cfg,
+        params={
+            "address": "observations.policy.joint_vel.noise.n_min",
+            "modify_fn": initial_final_interpolate_fn,
+            "modify_params": {"initial_value": 0.0, "final_value": -0.1, "difficulty_term_str": "adr"},
+        },
+    )
+    joint_vel_unoise_max_adr = CurrTerm(
+        func=mdp.modify_term_cfg,
+        params={
+            "address": "observations.policy.joint_vel.noise.n_max",
+            "modify_fn": initial_final_interpolate_fn,
+            "modify_params": {"initial_value": 0.0, "final_value": 0.1, "difficulty_term_str": "adr"},
+        },
+    )  
+    
+    cam_rgb_feat_unoise_min_adr = CurrTerm(
+        func=mdp.modify_term_cfg,
+        params={
+            "address": "observations.policy.cam_rgb_feat.noise.n_min",
+            "modify_fn": initial_final_interpolate_fn,
+            "modify_params": {"initial_value": 0.0, "final_value": -0.1, "difficulty_term_str": "adr"},
+        },
+    )
+    cam_rgb_feat_unoise_max_adr = CurrTerm(
+        func=mdp.modify_term_cfg,
+        params={
+            "address": "observations.policy.cam_rgb_feat.noise.n_max",
+            "modify_fn": initial_final_interpolate_fn,
+            "modify_params": {"initial_value": 0.0, "final_value": 0.1, "difficulty_term_str": "adr"},
+        },
+    )      
+    

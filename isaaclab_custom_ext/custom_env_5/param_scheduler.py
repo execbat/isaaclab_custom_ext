@@ -67,9 +67,19 @@ def lerp_tuple(
     delay_steps: int | None = None,
     log_name: str | None = None,
 ):
-    cur = _as_tuple(old_value)
-    s   = _as_tuple(cur if start is None else start)
-    e   = _as_tuple(cur if end   is None else end)
+    # --- FIX: allow old_value to be None ---
+    if old_value is None:
+        if start is not None:
+            cur = _as_tuple(start)
+        elif end is not None:
+            cur = _as_tuple(end)
+        else:
+            cur = (0.0,)
+    else:
+        cur = _as_tuple(old_value)
+
+    s = _as_tuple(cur if start is None else start)
+    e = _as_tuple(cur if end   is None else end)
 
     n = max(len(cur), len(s), len(e))
     s = tuple(s[i] if i < len(s) else s[-1] for i in range(n))
@@ -82,7 +92,8 @@ def lerp_tuple(
     new_tuple = tuple(sv + (ev - sv) * t for sv, ev in zip(s, e))
 
     if log_name is not None:
-        wide_range = abs(new_tuple[0]) + abs(new_tuple[1])
+        # safer than assuming len>=2
+        wide_range = sum(abs(v) for v in new_tuple)
         _log_curriculum_scalar(env, log_name, wide_range)
 
     return new_tuple
