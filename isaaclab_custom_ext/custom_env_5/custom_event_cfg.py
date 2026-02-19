@@ -3,7 +3,7 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from isaaclab_custom_ext.custom_env_3.events import respawn_target, respawn_reached_targets, randomize_obstacles_physx_and_usd
+from .events import respawn_target, respawn_reached_targets, randomize_obstacles_physx_and_usd
 
 
 

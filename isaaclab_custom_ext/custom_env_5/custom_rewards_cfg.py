@@ -8,7 +8,7 @@ import math
 from .rewards import feet_impact_vel, pelvis_height_target_reward, leg_pelvis_torso_coalignment_reward, step_width_penalty, target_distance_exp_reward, feet_air_time_positive_biped
 
 @configclass
-class G1Rewards(RewardsCfg):
+class RewardsCfg:
     """Reward terms for the MDP."""
     track_lin_vel_xy_exp = None
     track_ang_vel_z_exp = None

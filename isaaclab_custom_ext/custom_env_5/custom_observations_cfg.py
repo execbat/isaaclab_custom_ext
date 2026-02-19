@@ -39,14 +39,6 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for policy group."""
 
-        # observation terms (order preserved)
-#        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1))
-#        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, noise=Unoise(n_min=-0.2, n_max=0.2))
-#        projected_gravity = ObsTerm(
-#            func=mdp.projected_gravity,
-#            noise=Unoise(n_min=-0.05, n_max=0.05),
-#        )
-
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action)
@@ -65,30 +57,9 @@ class ObservationsCfg:
                 #"model_device": env.device,                  
             },
         )
-        '''
-        # preprocessed depth map from the front camera
-        cam_depth_vec = ObsTerm(
-            func=depth_avgpool,
-            params={"sensor_cfg": SceneEntityCfg("front_camera"), "pool": 4},
-        )
+
         
-        # lidar observations RayCaster
-        lidar_scan_full = ObsTerm(
-            func=regex_lidar_distance_channels_all,
-            params={
-                "sensor_cfg": SceneEntityCfg("lidar_top"),
-                "normalize": True,
-                "clip_to_unit": False,
-                #"data_type": "distance",   # "distance" | "height" | "points"                
-                "fill_no_hit": 0.0,         # if detected nothing
-                "flatten": True,           # shape (N, C*A)
-            },
-        )
-        '''
-       
-        
-        # imu data
-        
+        # imu data        
         imu_projected_gravity = ObsTerm(func=mdp.imu_projected_gravity)
         imu_ang_vel = ObsTerm(func=mdp.imu_ang_vel)
         imu_lin_acc = ObsTerm(func=mdp.imu_lin_acc)

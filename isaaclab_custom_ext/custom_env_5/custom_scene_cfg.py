@@ -20,8 +20,8 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
 from isaaclab.envs.mdp.curriculums import modify_env_param
-#from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG 
-from .terrains_config import CUSTOM_TERRAINS_CFG
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG 
+
 
 from isaaclab.assets import RigidObjectCfg, RigidObjectCollectionCfg
 
@@ -33,7 +33,7 @@ class SceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
-        terrain_generator=CUSTOM_TERRAINS_CFG,
+        terrain_generator=ROUGH_TERRAINS_CFG,
         max_init_terrain_level=5,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(

@@ -1,7 +1,6 @@
 from isaaclab.utils import configclass
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 import isaaclab_tasks.manager_based.locomotion.velocity.mdp as mdp
-from .param_scheduler import lerp_scalar, lerp_tuple
 from .curriculums import DifficultyScheduler, initial_final_interpolate_fn
 from isaaclab.managers import ManagerTermBase, SceneEntityCfg
 
